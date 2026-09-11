@@ -1,0 +1,41 @@
+name: Build Workforce Client
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.5'
+          channel: stable
+      - run: flutter pub get
+      - run: flutter create --platforms=android .
+      - run: flutter build apk --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: workforce-client-android-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+
+  ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.5'
+          channel: stable
+      - run: flutter pub get
+      - run: flutter create --platforms=ios .
+      - run: flutter build ios --release --no-codesign
+      - name: Package unsigned iOS app
+        run: mkdir -p artifacts && cp -R build/ios/iphoneos/Runner.app artifacts/WorkforceClient.app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: workforce-client-ios-app-unsigned
+          path: artifacts/WorkforceClient.app
