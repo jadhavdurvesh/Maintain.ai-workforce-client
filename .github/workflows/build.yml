@@ -2,57 +2,128 @@ name: Build Workforce Client
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+
   workflow_dispatch:
 
 permissions:
   contents: read
 
+env:
+  FLUTTER_VERSION: "3.24.5"
+  PROJECT_NAME: "maintain_ai_workforce_client"
+
 jobs:
   analyze:
+    name: Analyze Flutter App
+
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.5'
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
-      - run: flutter pub get
-      - run: flutter create --project-name maintain_ai_workforce_client --platforms=android,ios .
-      - run: flutter analyze
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Generate platform projects
+        run: |
+          flutter create \
+            --project-name ${{ env.PROJECT_NAME }} \
+            --platforms=android,ios \
+            .
+
+      - name: Remove generated example test
+        run: |
+          rm -f test/widget_test.dart
+
+      - name: Analyze
+        run: flutter analyze
 
   android:
+    name: Build Android APK
+
     needs: analyze
+
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.5'
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
-      - run: flutter pub get
-      - run: flutter create --project-name maintain_ai_workforce_client --platforms=android .
-      - run: flutter build apk --release
-      - uses: actions/upload-artifact@v4
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Generate Android project
+        run: |
+          flutter create \
+            --project-name ${{ env.PROJECT_NAME }} \
+            --platforms=android \
+            .
+
+      - name: Build release APK
+        run: flutter build apk --release
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
         with:
           name: workforce-client-android-apk
           path: build/app/outputs/flutter-apk/app-release.apk
 
   ios:
+    name: Build iOS
+
     needs: analyze
+
     runs-on: macos-latest
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.5'
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
-      - run: flutter pub get
-      - run: flutter create --project-name maintain_ai_workforce_client --platforms=ios .
-      - run: flutter build ios --release --no-codesign
-      - name: Package unsigned iOS app
-        run: mkdir -p artifacts && cp -R build/ios/iphoneos/Runner.app artifacts/WorkforceClient.app
-      - uses: actions/upload-artifact@v4
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Generate iOS project
+        run: |
+          flutter create \
+            --project-name ${{ env.PROJECT_NAME }} \
+            --platforms=ios \
+            .
+
+      - name: Build unsigned iOS app
+        run: flutter build ios --release --no-codesign
+
+      - name: Package iOS app
+        run: |
+          mkdir -p artifacts
+          cp -R build/ios/iphoneos/Runner.app \
+            artifacts/WorkforceClient.app
+
+      - name: Upload iOS artifact
+        uses: actions/upload-artifact@v4
         with:
           name: workforce-client-ios-app-unsigned
           path: artifacts/WorkforceClient.app
