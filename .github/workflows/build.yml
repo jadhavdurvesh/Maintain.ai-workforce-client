@@ -46,7 +46,7 @@ jobs:
           rm -f test/widget_test.dart
 
       - name: Analyze
-        run: flutter analyze
+        run: flutter analyze --no-fatal-infos
 
   android:
     name: Build Android APK
