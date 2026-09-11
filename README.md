@@ -1,16 +1,43 @@
 # Industrial Workforce Client
 
-Cross-platform Flutter client for MAINTAIN AI workforce operations.
+Cross-platform Flutter worker/technician client for the industrial maintenance platform.
 
-## Current stage
+## Current version
 
-Initial UI only. **Authentication is intentionally not implemented yet** because the main backend authentication/company model is still being finalized.
+Authentication is intentionally **not implemented yet**. This client is functional without login and is designed to connect to the shared FastAPI backend.
 
-The first version provides the foundation for:
-- Worker dashboard
-- Assigned machines
-- Work orders
-- Notifications area
-- Cross-platform Android/iOS app structure
+### Worker features
+- Dashboard with assigned-machine health overview
+- Machine list with health, code, location, department and operating information
+- Read-only machine details
+- Work-order list
+- Acknowledge pending work orders
+- Resolve in-progress work orders with required resolution notes
+- Work-order priority and status indicators
+- Alerts screen
+- Backend refresh every 10 seconds
+- Manual refresh
+- Graceful fallback when the backend is temporarily unavailable
+- Android and iOS builds through GitHub Actions
 
-Future work will connect this client to the shared FastAPI backend and enforce worker/company/role permissions server-side.
+### Current API integration
+Default backend: `https://maintain-ai-3.vercel.app`
+
+Endpoints currently used:
+- `GET /api/machines`
+- `GET /api/work-orders`
+- `GET /api/alerts`
+- `PATCH /api/work-orders/{id}`
+
+The app currently displays the backend's available data because authentication and worker-specific machine authorization have not yet been added to the main backend.
+
+### Deferred until backend authentication is ready
+- Worker login/session
+- Organization/company isolation
+- Role-based permissions
+- Machine assignment enforcement
+- User-specific notification registration
+- Push notifications
+- WebSocket live events
+
+These will be added after the main platform authentication model is finalized.
