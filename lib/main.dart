@@ -11,46 +11,125 @@ void main() {
 }
 
 class ApiClient {
-  Future<dynamic> get(String path) async {
-    final response = await http
-        .get(Uri.parse('$apiBaseUrl$path'))
-        .timeout(const Duration(seconds: 12));
+  String? token;
 
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception(
-        'HTTP ${response.statusCode}: ${response.body}',
-      );
-    }
-
-    return jsonDecode(response.body);
+  Map<String, String> get _headers {
+    return {
+      'Content-Type': 'application/json',
+      if (token != null) 'Authorization': 'Bearer $token',
+    };
   }
 
-  Future<dynamic> patch(
-    String path,
-    Map<String, dynamic> body,
-  ) async {
+  Future<dynamic> get(String path) async {
     final response = await http
-        .patch(
+        .get(
           Uri.parse('$apiBaseUrl$path'),
-          headers: const {
-            'Content-Type': 'application/json',
-          },
-          body: jsonEncode(body),
+          headers: _headers,
         )
         .timeout(const Duration(seconds: 12));
 
+    return _handleResponse(response);
+  }
+
+  Future<dynamic> post(
+    String path, {
+    Map<String, dynamic>? body,
+  }) async {
+    final response = await http
+        .post(
+          Uri.parse('$apiBaseUrl$path'),
+          headers: _headers,
+          body: jsonEncode(body ?? {}),
+        )
+        .timeout(const Duration(seconds: 12));
+
+    return _handleResponse(response);
+  }
+
+  Future<dynamic> patch(
+    String path, {
+    Map<String, dynamic>? body,
+  }) async {
+    final response = await http
+        .patch(
+          Uri.parse('$apiBaseUrl$path'),
+          headers: _headers,
+          body: jsonEncode(body ?? {}),
+        )
+        .timeout(const Duration(seconds: 12));
+
+    return _handleResponse(response);
+  }
+
+  dynamic _handleResponse(http.Response response) {
+    dynamic data;
+
+    try {
+      data = jsonDecode(response.body);
+    } catch (_) {
+      data = response.body;
+    }
+
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception(
-        'HTTP ${response.statusCode}: ${response.body}',
+      String message = 'HTTP ${response.statusCode}';
+
+      if (data is Map && data['detail'] != null) {
+        message = data['detail'].toString();
+      }
+
+      throw ApiException(
+        message,
+        response.statusCode,
       );
     }
 
-    return jsonDecode(response.body);
+    return data;
   }
 }
 
-class WorkforceApp extends StatelessWidget {
+class ApiException implements Exception {
+  final String message;
+  final int statusCode;
+
+  ApiException(this.message, this.statusCode);
+
+  @override
+  String toString() => message;
+}
+
+class WorkforceApp extends StatefulWidget {
   const WorkforceApp({super.key});
+
+  @override
+  State<WorkforceApp> createState() => _WorkforceAppState();
+}
+
+class _WorkforceAppState extends State<WorkforceApp> {
+  final ApiClient api = ApiClient();
+
+  bool authenticated = false;
+  Map<String, dynamic>? worker;
+
+  void login(
+    String token,
+    Map<String, dynamic> user,
+  ) {
+    api.token = token;
+
+    setState(() {
+      authenticated = true;
+      worker = user;
+    });
+  }
+
+  void logout() {
+    api.token = null;
+
+    setState(() {
+      authenticated = false;
+      worker = null;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -71,37 +150,247 @@ class WorkforceApp extends StatelessWidget {
           margin: EdgeInsets.zero,
         ),
       ),
-      home: const WorkforceHome(),
+      home: authenticated
+          ? WorkforceHome(
+              api: api,
+              worker: worker!,
+              onLogout: logout,
+            )
+          : WorkerLoginPage(
+              api: api,
+              onLogin: login,
+            ),
+    );
+  }
+}
+
+class WorkerLoginPage extends StatefulWidget {
+  final ApiClient api;
+  final void Function(
+    String token,
+    Map<String, dynamic> user,
+  ) onLogin;
+
+  const WorkerLoginPage({
+    super.key,
+    required this.api,
+    required this.onLogin,
+  });
+
+  @override
+  State<WorkerLoginPage> createState() => _WorkerLoginPageState();
+}
+
+class _WorkerLoginPageState extends State<WorkerLoginPage> {
+  final usernameController = TextEditingController();
+
+  bool loading = false;
+  String? error;
+
+  @override
+  void dispose() {
+    usernameController.dispose();
+    super.dispose();
+  }
+
+  Future<void> login() async {
+    final username = usernameController.text.trim();
+
+    if (username.isEmpty) {
+      setState(() {
+        error = 'Enter your username.';
+      });
+      return;
+    }
+
+    setState(() {
+      loading = true;
+      error = null;
+    });
+
+    try {
+      final response = await widget.api.post(
+        '/api/auth/worker-login',
+        body: {
+          'username': username,
+        },
+      );
+
+      widget.onLogin(
+        response['access_token'].toString(),
+        Map<String, dynamic>.from(response),
+      );
+    } catch (e) {
+      setState(() {
+        error = e.toString();
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          loading = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(
+                maxWidth: 420,
+              ),
+              child: Card(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(24),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    crossAxisAlignment:
+                        CrossAxisAlignment.stretch,
+                    children: [
+                      const CircleAvatar(
+                        radius: 34,
+                        backgroundColor:
+                            Color(0x223D8BFF),
+                        child: Icon(
+                          Icons.engineering,
+                          size: 36,
+                          color: Colors.lightBlueAccent,
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      const Text(
+                        'Industrial Workforce',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'Worker Client',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Colors.white54,
+                        ),
+                      ),
+                      const SizedBox(height: 28),
+                      TextField(
+                        controller: usernameController,
+                        textInputAction:
+                            TextInputAction.done,
+                        onSubmitted: (_) => login(),
+                        decoration:
+                            const InputDecoration(
+                          labelText: 'Username',
+                          hintText: 'worker01',
+                          prefixIcon:
+                              Icon(Icons.person_outline),
+                        ),
+                      ),
+                      if (error != null) ...[
+                        const SizedBox(height: 12),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color:
+                                Colors.redAccent.withOpacity(.10),
+                            borderRadius:
+                                BorderRadius.circular(12),
+                            border: Border.all(
+                              color:
+                                  Colors.redAccent.withOpacity(.25),
+                            ),
+                          ),
+                          child: Text(
+                            error!,
+                            style: const TextStyle(
+                              color: Colors.redAccent,
+                            ),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 18),
+                      FilledButton(
+                        onPressed:
+                            loading ? null : login,
+                        style: FilledButton.styleFrom(
+                          padding:
+                              const EdgeInsets.symmetric(
+                            vertical: 15,
+                          ),
+                        ),
+                        child: loading
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child:
+                                    CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Text(
+                                'Continue',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                      ),
+                      const SizedBox(height: 14),
+                      const Text(
+                        'Use the username created by your company administrator.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Colors.white38,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
 
 class WorkforceHome extends StatefulWidget {
-  const WorkforceHome({super.key});
+  final ApiClient api;
+  final Map<String, dynamic> worker;
+  final VoidCallback onLogout;
+
+  const WorkforceHome({
+    super.key,
+    required this.api,
+    required this.worker,
+    required this.onLogout,
+  });
 
   @override
   State<WorkforceHome> createState() => _WorkforceHomeState();
 }
 
 class _WorkforceHomeState extends State<WorkforceHome> {
-  final ApiClient api = ApiClient();
-
-  int selectedTab = 0;
-
+  int tab = 0;
   bool loading = true;
-  bool demoMode = false;
   bool syncing = false;
 
   String? message;
-
-  Timer? refreshTimer;
+  Timer? timer;
 
   List<Map<String, dynamic>> machines = [];
   List<Map<String, dynamic>> orders = [];
-  List<Map<String, dynamic>> alerts = [];
-
-  List<Map<String, dynamic>> previousOrders = [];
-  List<Map<String, dynamic>> previousAlerts = [];
+  List<Map<String, dynamic>> faults = [];
 
   @override
   void initState() {
@@ -109,7 +398,7 @@ class _WorkforceHomeState extends State<WorkforceHome> {
 
     refresh();
 
-    refreshTimer = Timer.periodic(
+    timer = Timer.periodic(
       const Duration(seconds: 10),
       (_) => refresh(silent: true),
     );
@@ -117,16 +406,14 @@ class _WorkforceHomeState extends State<WorkforceHome> {
 
   @override
   void dispose() {
-    refreshTimer?.cancel();
+    timer?.cancel();
     super.dispose();
   }
 
   Future<void> refresh({
     bool silent = false,
   }) async {
-    if (syncing) {
-      return;
-    }
+    if (syncing) return;
 
     syncing = true;
 
@@ -139,98 +426,40 @@ class _WorkforceHomeState extends State<WorkforceHome> {
 
     try {
       final results = await Future.wait<dynamic>([
-        api.get('/api/machines'),
-        api.get('/api/work-orders'),
-        api.get('/api/alerts'),
+        widget.api.get('/api/machines'),
+        widget.api.get('/api/work-orders'),
       ]);
 
-      if (!mounted) {
-        return;
-      }
-
-      final nextMachines = _toMaps(results[0]);
-      final nextOrders = _toMaps(results[1]);
-      final nextAlerts = _toMaps(results[2]);
-
-      final hasNewWorkOrder = nextOrders.any(
-        (item) => !previousOrders.any(
-          (old) => '${old['id']}' == '${item['id']}',
-        ),
-      );
-
-      final hasNewAlert = nextAlerts.any(
-        (item) => !previousAlerts.any(
-          (old) => '${old['id']}' == '${item['id']}',
-        ),
-      );
+      if (!mounted) return;
 
       setState(() {
-        machines = nextMachines;
-        orders = nextOrders;
-        alerts = nextAlerts;
-
-        previousOrders =
-            List<Map<String, dynamic>>.from(nextOrders);
-
-        previousAlerts =
-            List<Map<String, dynamic>>.from(nextAlerts);
-
+        machines = _maps(results[0]);
+        orders = _maps(results[1]);
         loading = false;
-        demoMode = false;
         message = null;
       });
-
-      if (silent && (hasNewWorkOrder || hasNewAlert)) {
-        _showSnack(
-          hasNewWorkOrder
-              ? 'New work order received.'
-              : 'New machine alert received.',
-        );
-      }
-    } catch (_) {
-      if (!mounted) {
-        return;
-      }
+    } catch (e) {
+      if (!mounted) return;
 
       setState(() {
         loading = false;
-
-        if (machines.isEmpty &&
-            orders.isEmpty &&
-            alerts.isEmpty) {
-          machines = _demoMachines();
-          orders = _demoOrders();
-          alerts = _demoAlerts();
-
-          previousOrders =
-              List<Map<String, dynamic>>.from(orders);
-
-          previousAlerts =
-              List<Map<String, dynamic>>.from(alerts);
-
-          demoMode = true;
-
-          message =
-              'Backend unavailable — demo data is shown.';
-        } else {
-          message =
-              'Connection unavailable — showing last received data.';
-        }
+        message = e.toString();
       });
     } finally {
       syncing = false;
     }
   }
 
-  List<Map<String, dynamic>> _toMaps(dynamic value) {
+  List<Map<String, dynamic>> _maps(dynamic value) {
     if (value is! List) {
-      return <Map<String, dynamic>>[];
+      return [];
     }
 
     return value
         .whereType<Map>()
         .map(
-          (item) => Map<String, dynamic>.from(item),
+          (item) =>
+              Map<String, dynamic>.from(item),
         )
         .toList();
   }
@@ -239,39 +468,276 @@ class _WorkforceHomeState extends State<WorkforceHome> {
     return double.tryParse('$value') ?? 0;
   }
 
-  Future<void> updateWorkOrder(
+  Future<void> updateOrder(
     Map<String, dynamic> order,
     String status, {
     String? notes,
   }) async {
     try {
-      await api.patch(
+      await widget.api.patch(
         '/api/work-orders/${order['id']}',
-        {
+        body: {
           'status': status,
           if (notes != null)
             'resolution_notes': notes,
         },
       );
 
-      _showSnack('Work order updated.');
-
+      _snack('Work order updated.');
       await refresh(silent: true);
-    } catch (error) {
-      _showSnack(
-        'Could not update work order: $error',
+    } catch (e) {
+      _snack(
+        'Could not update work order: $e',
         error: true,
       );
     }
   }
 
-  void _showSnack(
+  Future<void> reportFault() async {
+    if (machines.isEmpty) {
+      _snack(
+        'No assigned machines are available.',
+        error: true,
+      );
+      return;
+    }
+
+    int selectedMachine =
+        machines.first['id'] as int;
+
+    String severity = 'warning';
+
+    final descriptionController =
+        TextEditingController();
+
+    final symptomsController =
+        TextEditingController();
+
+    final result =
+        await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor:
+          const Color(0xFF0B1728),
+      showDragHandle: true,
+      builder: (_) {
+        return StatefulBuilder(
+          builder: (
+            context,
+            setSheetState,
+          ) {
+            return Padding(
+              padding: EdgeInsets.fromLTRB(
+                20,
+                8,
+                20,
+                MediaQuery.of(context)
+                        .viewInsets
+                        .bottom +
+                    20,
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment:
+                      CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Report Fault / Anomaly',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'Report anything unusual you observe on an assigned machine.',
+                      style: TextStyle(
+                        color: Colors.white54,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    DropdownButtonFormField<int>(
+                      value: selectedMachine,
+                      decoration:
+                          const InputDecoration(
+                        labelText: 'Machine',
+                        prefixIcon:
+                            Icon(Icons.precision_manufacturing),
+                      ),
+                      items: machines.map(
+                        (machine) {
+                          return DropdownMenuItem<int>(
+                            value:
+                                machine['id'] as int,
+                            child: Text(
+                              '${machine['name']} '
+                              '(${machine['machine_code']})',
+                            ),
+                          );
+                        },
+                      ).toList(),
+                      onChanged: (value) {
+                        if (value != null) {
+                          setSheetState(() {
+                            selectedMachine =
+                                value;
+                          });
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 14),
+                    DropdownButtonFormField<String>(
+                      value: severity,
+                      decoration:
+                          const InputDecoration(
+                        labelText: 'Severity',
+                      ),
+                      items: const [
+                        DropdownMenuItem(
+                          value: 'normal',
+                          child: Text('Normal'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'warning',
+                          child: Text('Warning'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'high',
+                          child: Text('High'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'critical',
+                          child: Text('Critical'),
+                        ),
+                      ],
+                      onChanged: (value) {
+                        if (value != null) {
+                          setSheetState(() {
+                            severity = value;
+                          });
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 14),
+                    TextField(
+                      controller:
+                          descriptionController,
+                      maxLines: 3,
+                      decoration:
+                          const InputDecoration(
+                        labelText: 'What is wrong?',
+                        hintText:
+                            'Example: Unusual vibration near the drive end.',
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    TextField(
+                      controller:
+                          symptomsController,
+                      maxLines: 3,
+                      decoration:
+                          const InputDecoration(
+                        labelText: 'Symptoms / observations',
+                        hintText:
+                            'Example: Noise increased after startup.',
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        onPressed: () async {
+                          final description =
+                              descriptionController
+                                  .text
+                                  .trim();
+
+                          if (description.isEmpty) {
+                            ScaffoldMessenger.of(
+                              context,
+                            ).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Describe the fault first.',
+                                ),
+                              ),
+                            );
+                            return;
+                          }
+
+                          try {
+                            await widget.api.post(
+                              '/api/faults',
+                              body: {
+                                'machine_id':
+                                    selectedMachine,
+                                'description':
+                                    description,
+                                'symptoms':
+                                    symptomsController
+                                            .text
+                                            .trim()
+                                            .isEmpty
+                                        ? null
+                                        : symptomsController
+                                            .text
+                                            .trim(),
+                                'severity':
+                                    severity,
+                              },
+                            );
+
+                            if (context.mounted) {
+                              Navigator.pop(
+                                context,
+                                true,
+                              );
+                            }
+                          } catch (e) {
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(
+                                context,
+                              ).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    'Could not report fault: $e',
+                                  ),
+                                ),
+                              );
+                            }
+                          }
+                        },
+                        icon: const Icon(
+                          Icons.report_problem_outlined,
+                        ),
+                        label: const Text(
+                          'Submit Fault Report',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    descriptionController.dispose();
+    symptomsController.dispose();
+
+    if (result == true && mounted) {
+      _snack('Fault reported successfully.');
+      await refresh(silent: true);
+    }
+  }
+
+  void _snack(
     String text, {
     bool error = false,
   }) {
-    if (!mounted) {
-      return;
-    }
+    if (!mounted) return;
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -287,18 +753,20 @@ class _WorkforceHomeState extends State<WorkforceHome> {
   @override
   Widget build(BuildContext context) {
     final pages = <Widget>[
-      _dashboardPage(),
+      _dashboard(),
       _machinesPage(),
-      _workOrdersPage(),
-      _alertsPage(),
-      _morePage(),
+      _ordersPage(),
+      _profilePage(),
     ];
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text(
-          'Industrial Workforce',
-          style: TextStyle(
+        title: Text(
+          widget.worker['full_name']?.toString().isNotEmpty ==
+                  true
+              ? widget.worker['full_name'].toString()
+              : widget.worker['username'].toString(),
+          style: const TextStyle(
             fontWeight: FontWeight.w800,
           ),
         ),
@@ -309,32 +777,45 @@ class _WorkforceHomeState extends State<WorkforceHome> {
               child: SizedBox(
                 width: 18,
                 height: 18,
-                child: CircularProgressIndicator(
+                child:
+                    CircularProgressIndicator(
                   strokeWidth: 2,
                 ),
               ),
             ),
           IconButton(
             onPressed: () => refresh(),
-            tooltip: 'Refresh',
             icon: const Icon(Icons.refresh),
           ),
         ],
       ),
-
-      body: pages[selectedTab],
-
+      body: pages[tab],
+      floatingActionButton:
+          tab == 0 || tab == 1
+              ? FloatingActionButton.extended(
+                  onPressed: reportFault,
+                  icon: const Icon(
+                    Icons.report_problem_outlined,
+                  ),
+                  label: const Text(
+                    'Report Fault',
+                  ),
+                )
+              : null,
       bottomNavigationBar: NavigationBar(
-        selectedIndex: selectedTab,
+        selectedIndex: tab,
         onDestinationSelected: (index) {
           setState(() {
-            selectedTab = index;
+            tab = index;
           });
         },
         destinations: const [
           NavigationDestination(
-            icon: Icon(Icons.dashboard_outlined),
-            selectedIcon: Icon(Icons.dashboard),
+            icon: Icon(
+              Icons.dashboard_outlined,
+            ),
+            selectedIcon:
+                Icon(Icons.dashboard),
             label: 'Home',
           ),
           NavigationDestination(
@@ -347,67 +828,70 @@ class _WorkforceHomeState extends State<WorkforceHome> {
             label: 'Machines',
           ),
           NavigationDestination(
-            icon: Icon(Icons.assignment_outlined),
-            selectedIcon: Icon(Icons.assignment),
+            icon: Icon(
+              Icons.assignment_outlined,
+            ),
+            selectedIcon:
+                Icon(Icons.assignment),
             label: 'Work Orders',
           ),
           NavigationDestination(
-            icon: Icon(Icons.notifications_none),
-            selectedIcon: Icon(Icons.notifications),
-            label: 'Alerts',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.more_horiz),
-            selectedIcon: Icon(Icons.more_horiz),
-            label: 'More',
+            icon: Icon(
+              Icons.person_outline,
+            ),
+            selectedIcon:
+                Icon(Icons.person),
+            label: 'Profile',
           ),
         ],
       ),
     );
   }
 
-  Widget _dashboardPage() {
+  Widget _dashboard() {
     final averageHealth = machines.isEmpty
         ? 0.0
         : machines
                 .map(
                   (machine) =>
-                      _number(machine['health_score']),
+                      _number(
+                    machine['health_score'],
+                  ),
                 )
                 .reduce((a, b) => a + b) /
             machines.length;
 
-    final openOrders = orders
+    final activeOrders = orders
         .where(
           (order) =>
-              '${order['status']}'.toLowerCase() !=
+              '${order['status']}'
+                  .toLowerCase() !=
               'completed',
         )
         .length;
 
-    final activeAlerts = alerts
-        .where(
-          (alert) => alert['resolved'] != true,
-        )
-        .length;
-
-    final criticalMachines = machines
+    final critical = machines
         .where(
           (machine) =>
-              _number(machine['health_score']) < 40,
+              _number(
+                machine['health_score'],
+              ) <
+              40,
         )
         .length;
 
     return RefreshIndicator(
       onRefresh: refresh,
       child: ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.all(16),
+        physics:
+            const AlwaysScrollableScrollPhysics(),
+        padding:
+            const EdgeInsets.all(16),
         children: [
           if (message != null)
             _statusBanner(message!),
 
-          _heroCard(averageHealth),
+          _hero(averageHealth),
 
           const SizedBox(height: 14),
 
@@ -424,45 +908,37 @@ class _WorkforceHomeState extends State<WorkforceHome> {
               Expanded(
                 child: _metricCard(
                   'Open Jobs',
-                  '$openOrders',
+                  '$activeOrders',
                   Icons.assignment,
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
                 child: _metricCard(
-                  'Alerts',
-                  '$activeAlerts',
+                  'Critical',
+                  '$critical',
                   Icons.warning_amber,
                 ),
               ),
             ],
           ),
 
-          const SizedBox(height: 10),
-
-          _wideMetricCard(
-            'Critical machines',
-            '$criticalMachines',
-            Icons.warning_amber_rounded,
-            criticalMachines > 0
-                ? Colors.redAccent
-                : Colors.greenAccent,
-          ),
-
           const SizedBox(height: 22),
 
-          _sectionHeader(
-            'My Machines',
-            'Current machine health',
+          const Text(
+            'Assigned Machines',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
+            ),
           ),
 
           const SizedBox(height: 10),
 
           if (machines.isEmpty)
-            _emptyState(
-              'No machines',
-              'No machine information is currently available.',
+            _empty(
+              'No machines assigned',
+              'Your administrator has not assigned any machines yet.',
             )
           else
             ...machines.take(5).map(_machineTile),
@@ -473,7 +949,7 @@ class _WorkforceHomeState extends State<WorkforceHome> {
             children: [
               const Expanded(
                 child: Text(
-                  'Assigned Work',
+                  'My Work',
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w800,
@@ -483,94 +959,26 @@ class _WorkforceHomeState extends State<WorkforceHome> {
               TextButton(
                 onPressed: () {
                   setState(() {
-                    selectedTab = 2;
+                    tab = 2;
                   });
                 },
-                child: const Text('View all'),
+                child: const Text(
+                  'View all',
+                ),
               ),
             ],
           ),
 
           if (orders.isEmpty)
-            _emptyState(
+            _empty(
               'No work orders',
-              'New assigned jobs will appear here.',
+              'Assigned maintenance jobs will appear here.',
             )
           else
-            ...orders.take(3).map(_orderPreview),
+            ...orders
+                .take(3)
+                .map(_orderPreview),
         ],
-      ),
-    );
-  }
-
-  Widget _heroCard(double averageHealth) {
-    final color = averageHealth >= 70
-        ? Colors.greenAccent
-        : averageHealth >= 40
-            ? Colors.amberAccent
-            : Colors.redAccent;
-
-    return Card(
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(22),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment:
-                    CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Worker Dashboard',
-                    style: TextStyle(
-                      color: Colors.white60,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    averageHealth == 0
-                        ? '—'
-                        : '${averageHealth.toStringAsFixed(0)}%',
-                    style: TextStyle(
-                      fontSize: 42,
-                      fontWeight: FontWeight.w900,
-                      color: color,
-                    ),
-                  ),
-                  const Text(
-                    'Average machine health',
-                    style: TextStyle(
-                      color: Colors.white54,
-                    ),
-                  ),
-                  if (demoMode)
-                    const Padding(
-                      padding: EdgeInsets.only(top: 8),
-                      child: Text(
-                        'Preview mode',
-                        style: TextStyle(
-                          color: Colors.amberAccent,
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            CircleAvatar(
-              radius: 34,
-              backgroundColor:
-                  color.withOpacity(.12),
-              child: Icon(
-                Icons.engineering,
-                size: 34,
-                color: color,
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -579,20 +987,30 @@ class _WorkforceHomeState extends State<WorkforceHome> {
     return RefreshIndicator(
       onRefresh: refresh,
       child: ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.all(16),
+        physics:
+            const AlwaysScrollableScrollPhysics(),
+        padding:
+            const EdgeInsets.all(16),
         children: [
-          _sectionHeader(
+          const Text(
             'My Machines',
-            'Machine status and health',
+            style: TextStyle(
+              fontSize: 27,
+              fontWeight: FontWeight.w900,
+            ),
           ),
-
+          const SizedBox(height: 6),
+          const Text(
+            'Only machines assigned to your account are shown.',
+            style: TextStyle(
+              color: Colors.white54,
+            ),
+          ),
           const SizedBox(height: 16),
-
           if (machines.isEmpty)
-            _emptyState(
-              'No machines',
-              'No machine data is available.',
+            _empty(
+              'No machines assigned',
+              'Contact your administrator to receive machine assignments.',
             )
           else
             ...machines.map(_machineTile),
@@ -614,10 +1032,11 @@ class _WorkforceHomeState extends State<WorkforceHome> {
             : Colors.redAccent;
 
     return Card(
-      margin: const EdgeInsets.only(bottom: 10),
+      margin:
+          const EdgeInsets.only(
+        bottom: 10,
+      ),
       child: ListTile(
-        onTap: () => _showMachine(machine),
-
         leading: CircleAvatar(
           backgroundColor:
               color.withOpacity(.12),
@@ -626,14 +1045,12 @@ class _WorkforceHomeState extends State<WorkforceHome> {
             color: color,
           ),
         ),
-
         title: Text(
           '${machine['name'] ?? 'Machine'}',
           style: const TextStyle(
             fontWeight: FontWeight.w700,
           ),
         ),
-
         subtitle: Text(
           '${machine['machine_code'] ?? '—'} • '
           '${machine['location'] ?? '—'}',
@@ -641,7 +1058,6 @@ class _WorkforceHomeState extends State<WorkforceHome> {
             color: Colors.white54,
           ),
         ),
-
         trailing: Text(
           '${health.toStringAsFixed(0)}%',
           style: TextStyle(
@@ -653,111 +1069,34 @@ class _WorkforceHomeState extends State<WorkforceHome> {
     );
   }
 
-  void _showMachine(
-    Map<String, dynamic> machine,
-  ) {
-    final health =
-        _number(machine['health_score']);
-
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor:
-          const Color(0xFF0B1728),
-      showDragHandle: true,
-      builder: (_) {
-        return Padding(
-          padding:
-              const EdgeInsets.fromLTRB(
-            20,
-            5,
-            20,
-            30,
-          ),
-          child: Column(
-            mainAxisSize:
-                MainAxisSize.min,
-            crossAxisAlignment:
-                CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      '${machine['name'] ?? 'Machine'}',
-                      style:
-                          const TextStyle(
-                        fontSize: 24,
-                        fontWeight:
-                            FontWeight.w900,
-                      ),
-                    ),
-                  ),
-                  _statusChip(health),
-                ],
-              ),
-
-              const SizedBox(height: 14),
-
-              _detailRow(
-                'Machine code',
-                '${machine['machine_code'] ?? '—'}',
-              ),
-
-              _detailRow(
-                'Location',
-                '${machine['location'] ?? '—'}',
-              ),
-
-              _detailRow(
-                'Department',
-                '${machine['department'] ?? '—'}',
-              ),
-
-              _detailRow(
-                'Operating hours',
-                '${machine['operating_hours'] ?? '—'}',
-              ),
-
-              _detailRow(
-                'Maintenance interval',
-                '${machine['maintenance_interval_hours'] ?? '—'} h',
-              ),
-
-              const SizedBox(height: 8),
-
-              const Text(
-                'Machine configuration is read-only here. '
-                'Changes belong in the main management application.',
-                style: TextStyle(
-                  color: Colors.white54,
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _workOrdersPage() {
+  Widget _ordersPage() {
     return RefreshIndicator(
       onRefresh: refresh,
       child: ListView(
         physics:
             const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.all(16),
+        padding:
+            const EdgeInsets.all(16),
         children: [
-          _sectionHeader(
+          const Text(
             'My Work Orders',
-            'Acknowledge, start and resolve assigned jobs',
+            style: TextStyle(
+              fontSize: 27,
+              fontWeight: FontWeight.w900,
+            ),
           ),
-
+          const SizedBox(height: 6),
+          const Text(
+            'Jobs assigned to your account.',
+            style: TextStyle(
+              color: Colors.white54,
+            ),
+          ),
           const SizedBox(height: 16),
-
           if (orders.isEmpty)
-            _emptyState(
+            _empty(
               'No work orders',
-              'Assigned jobs will appear here.',
+              'You currently have no assigned work.',
             )
           else
             ...orders.map(_workOrderCard),
@@ -787,9 +1126,12 @@ class _WorkforceHomeState extends State<WorkforceHome> {
 
     return Card(
       margin:
-          const EdgeInsets.only(bottom: 12),
+          const EdgeInsets.only(
+        bottom: 12,
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(15),
+        padding:
+            const EdgeInsets.all(15),
         child: Column(
           crossAxisAlignment:
               CrossAxisAlignment.start,
@@ -812,29 +1154,21 @@ class _WorkforceHomeState extends State<WorkforceHome> {
                 ),
               ],
             ),
-
             const SizedBox(height: 8),
-
             Text(
               '${order['problem'] ?? 'Maintenance work'}',
-              style:
-                  const TextStyle(
+              style: const TextStyle(
                 fontSize: 17,
-                fontWeight:
-                    FontWeight.w700,
+                fontWeight: FontWeight.w700,
               ),
             ),
-
             const SizedBox(height: 4),
-
             Text(
               'Machine #${order['machine_id'] ?? '—'}',
-              style:
-                  const TextStyle(
+              style: const TextStyle(
                 color: Colors.white54,
               ),
             ),
-
             if ('${order['recommended_actions'] ?? ''}'
                 .trim()
                 .isNotEmpty)
@@ -851,9 +1185,7 @@ class _WorkforceHomeState extends State<WorkforceHome> {
                   ),
                 ),
               ),
-
             const SizedBox(height: 12),
-
             Row(
               children: [
                 _chip(
@@ -864,27 +1196,25 @@ class _WorkforceHomeState extends State<WorkforceHome> {
                       ? Colors.greenAccent
                       : Colors.lightBlueAccent,
                 ),
-
                 const Spacer(),
-
                 if (status == 'pending')
                   OutlinedButton.icon(
                     onPressed: () =>
-                        updateWorkOrder(
+                        updateOrder(
                       order,
                       'in_progress',
                     ),
-                    icon:
-                        const Icon(Icons.check),
+                    icon: const Icon(
+                      Icons.check,
+                    ),
                     label: const Text(
                       'Acknowledge',
                     ),
                   ),
-
                 if (status == 'in_progress')
                   FilledButton.icon(
                     onPressed: () =>
-                        _resolveWorkOrder(
+                        _resolveOrder(
                       order,
                     ),
                     icon: const Icon(
@@ -902,7 +1232,7 @@ class _WorkforceHomeState extends State<WorkforceHome> {
     );
   }
 
-  Future<void> _resolveWorkOrder(
+  Future<void> _resolveOrder(
     Map<String, dynamic> order,
   ) async {
     final controller =
@@ -924,16 +1254,15 @@ class _WorkforceHomeState extends State<WorkforceHome> {
             labelText:
                 'Resolution notes',
             hintText:
-                'Describe the completed work...',
+                'Describe completed work...',
           ),
         ),
         actions: [
           TextButton(
             onPressed: () =>
                 Navigator.pop(context),
-            child: const Text(
-              'Cancel',
-            ),
+            child:
+                const Text('Cancel'),
           ),
           FilledButton(
             onPressed: () =>
@@ -941,9 +1270,8 @@ class _WorkforceHomeState extends State<WorkforceHome> {
               context,
               controller.text.trim(),
             ),
-            child: const Text(
-              'Resolve',
-            ),
+            child:
+                const Text('Resolve'),
           ),
         ],
       ),
@@ -956,175 +1284,132 @@ class _WorkforceHomeState extends State<WorkforceHome> {
       return;
     }
 
-    await updateWorkOrder(
+    await updateOrder(
       order,
       'completed',
       notes: notes,
     );
   }
 
-  Widget _alertsPage() {
-    return RefreshIndicator(
-      onRefresh: refresh,
-      child: ListView(
-        physics:
-            const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.all(16),
-        children: [
-          _sectionHeader(
-            'Alerts',
-            'Machine and maintenance events',
-          ),
+  Widget _profilePage() {
+    final username =
+        widget.worker['username']?.toString() ??
+            'worker';
 
-          const SizedBox(height: 16),
+    final name =
+        widget.worker['full_name']?.toString();
 
-          if (alerts.isEmpty)
-            _emptyState(
-              'No alerts',
-              'There are no alerts currently.',
-            )
-          else
-            ...alerts.map(
-              (alert) => Card(
-                margin:
-                    const EdgeInsets.only(
-                  bottom: 10,
-                ),
-                child: ListTile(
-                  leading: Icon(
-                    alert['resolved'] == true
-                        ? Icons.check_circle
-                        : Icons.warning_amber,
-                    color:
-                        alert['resolved'] == true
-                            ? Colors.greenAccent
-                            : Colors.amberAccent,
-                  ),
+    final organization =
+        widget.worker['organization_name']
+                ?.toString() ??
+            'Organization';
 
-                  title: Text(
-                    '${alert['alert_type'] ?? 'Alert'}',
-                  ),
-
-                  subtitle: Text(
-                    '${alert['message'] ?? 'No message'}',
-                  ),
-
-                  trailing: Text(
-                    '${alert['severity'] ?? 'unknown'}'
-                        .toUpperCase(),
-                    style:
-                        const TextStyle(
-                      fontWeight:
-                          FontWeight.w800,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _morePage() {
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding:
+          const EdgeInsets.all(16),
       children: [
-        _sectionHeader(
-          'More',
-          'Connection and client information',
+        Card(
+          shape:
+              RoundedRectangleBorder(
+            borderRadius:
+                BorderRadius.circular(20),
+          ),
+          child: Padding(
+            padding:
+                const EdgeInsets.all(20),
+            child: Row(
+              children: [
+                const CircleAvatar(
+                  radius: 30,
+                  child: Icon(
+                    Icons.person,
+                    size: 30,
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment:
+                        CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        name?.isNotEmpty == true
+                            ? name!
+                            : username,
+                        style:
+                            const TextStyle(
+                          fontSize: 20,
+                          fontWeight:
+                              FontWeight.w800,
+                        ),
+                      ),
+                      Text(
+                        '@$username',
+                        style:
+                            const TextStyle(
+                          color:
+                              Colors.white54,
+                        ),
+                      ),
+                      const SizedBox(
+                        height: 4,
+                      ),
+                      Text(
+                        organization,
+                        style:
+                            const TextStyle(
+                          color:
+                              Colors.white54,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
-
         const SizedBox(height: 14),
-
         Card(
           child: ListTile(
             leading: const Icon(
-              Icons.notifications_active_outlined,
+              Icons.badge_outlined,
             ),
             title:
-                const Text(
-              'Notifications',
-            ),
-            subtitle:
-                const Text(
-              'New work orders and alerts can surface while this client is running. '
-              'Push notifications will be added with authentication.',
+                const Text('Role'),
+            subtitle: Text(
+              widget.worker['role']
+                      ?.toString()
+                      .toUpperCase() ??
+                  'TECHNICIAN',
             ),
           ),
         ),
-
         Card(
           child: ListTile(
-            leading:
-                const Icon(
-              Icons.cloud_outlined,
+            leading: const Icon(
+              Icons.precision_manufacturing_outlined,
             ),
             title:
-                const Text(
-              'Backend',
-            ),
-            subtitle:
-                const Text(
-              apiBaseUrl,
-            ),
-          ),
-        ),
-
-        Card(
-          child: ListTile(
-            leading:
-                const Icon(
-              Icons.info_outline,
-            ),
-            title:
-                const Text(
-              'About',
-            ),
-            subtitle:
-                const Text(
-              'Industrial Workforce Client • field maintenance edition',
+                const Text('Assigned Machines'),
+            trailing: Text(
+              '${machines.length}',
+              style:
+                  const TextStyle(
+                fontSize: 20,
+                fontWeight:
+                    FontWeight.w800,
+              ),
             ),
           ),
         ),
-
-        const SizedBox(height: 10),
-
-        const Text(
-          'Authentication is intentionally disabled in this initial version.',
-          style:
-              TextStyle(
-            color: Colors.white54,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _sectionHeader(
-    String title,
-    String subtitle,
-  ) {
-    return Column(
-      crossAxisAlignment:
-          CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style:
-              const TextStyle(
-            fontSize: 27,
-            fontWeight:
-                FontWeight.w900,
-          ),
-        ),
-        const SizedBox(height: 5),
-        Text(
-          subtitle,
-          style:
-              const TextStyle(
-            color: Colors.white54,
-          ),
+        const SizedBox(height: 12),
+        FilledButton.tonalIcon(
+          onPressed: widget.onLogout,
+          icon:
+              const Icon(Icons.logout),
+          label:
+              const Text('Sign Out'),
         ),
       ],
     );
@@ -1143,7 +1428,8 @@ class _WorkforceHomeState extends State<WorkforceHome> {
           children: [
             Icon(
               icon,
-              color: Colors.lightBlueAccent,
+              color:
+                  Colors.lightBlueAccent,
             ),
             const SizedBox(height: 5),
             Text(
@@ -1160,7 +1446,8 @@ class _WorkforceHomeState extends State<WorkforceHome> {
               style:
                   const TextStyle(
                 fontSize: 11,
-                color: Colors.white54,
+                color:
+                    Colors.white54,
               ),
             ),
           ],
@@ -1169,7 +1456,7 @@ class _WorkforceHomeState extends State<WorkforceHome> {
     );
   }
 
-  Widget _wideMetricCard(
+  Widget _wideMetric(
     String label,
     String value,
     IconData icon,
@@ -1177,15 +1464,12 @@ class _WorkforceHomeState extends State<WorkforceHome> {
   ) {
     return Card(
       child: ListTile(
-        leading:
-            Icon(
+        leading: Icon(
           icon,
           color: color,
         ),
-        title:
-            Text(label),
-        trailing:
-            Text(
+        title: Text(label),
+        trailing: Text(
           value,
           style:
               TextStyle(
@@ -1239,9 +1523,7 @@ class _WorkforceHomeState extends State<WorkforceHome> {
         color:
             color.withOpacity(.12),
         borderRadius:
-            BorderRadius.circular(
-          30,
-        ),
+            BorderRadius.circular(30),
       ),
       child: Text(
         text,
@@ -1292,20 +1574,21 @@ class _WorkforceHomeState extends State<WorkforceHome> {
       decoration:
           BoxDecoration(
         color:
-            Colors.amber.withOpacity(.10),
+            Colors.redAccent.withOpacity(.10),
         borderRadius:
             BorderRadius.circular(13),
         border:
             Border.all(
           color:
-              Colors.amber.withOpacity(.25),
+              Colors.redAccent.withOpacity(.20),
         ),
       ),
       child: Row(
         children: [
           const Icon(
-            Icons.info_outline,
-            color: Colors.amberAccent,
+            Icons.error_outline,
+            color:
+                Colors.redAccent,
           ),
           const SizedBox(width: 8),
           Expanded(
@@ -1313,7 +1596,8 @@ class _WorkforceHomeState extends State<WorkforceHome> {
               text,
               style:
                   const TextStyle(
-                color: Colors.amberAccent,
+                color:
+                    Colors.redAccent,
               ),
             ),
           ),
@@ -1322,7 +1606,7 @@ class _WorkforceHomeState extends State<WorkforceHome> {
     );
   }
 
-  Widget _emptyState(
+  Widget _empty(
     String title,
     String subtitle,
   ) {
@@ -1353,7 +1637,8 @@ class _WorkforceHomeState extends State<WorkforceHome> {
                   TextAlign.center,
               style:
                   const TextStyle(
-                color: Colors.white54,
+                color:
+                    Colors.white54,
               ),
             ),
           ],
@@ -1379,7 +1664,8 @@ class _WorkforceHomeState extends State<WorkforceHome> {
               label,
               style:
                   const TextStyle(
-                color: Colors.white54,
+                color:
+                    Colors.white54,
               ),
             ),
           ),
@@ -1389,88 +1675,5 @@ class _WorkforceHomeState extends State<WorkforceHome> {
         ],
       ),
     );
-  }
-
-  List<Map<String, dynamic>>
-      _demoMachines() {
-    return [
-      {
-        'id': 1,
-        'name':
-            'Induction Motor M-04',
-        'machine_code': 'M-004',
-        'health_score': 86,
-        'location': 'Bay 3',
-        'department': 'Production',
-        'operating_hours': 4120,
-        'maintenance_interval_hours':
-            500,
-      },
-      {
-        'id': 2,
-        'name':
-            'Centrifugal Pump P-02',
-        'machine_code': 'P-002',
-        'health_score': 58,
-        'location':
-            'Utility Room',
-        'department': 'Utilities',
-        'operating_hours': 3120,
-        'maintenance_interval_hours':
-            500,
-      },
-      {
-        'id': 3,
-        'name':
-            'Air Compressor AC-01',
-        'machine_code': 'AC-001',
-        'health_score': 94,
-        'location':
-            'Compressor House',
-        'department': 'Utilities',
-        'operating_hours': 2110,
-        'maintenance_interval_hours':
-            750,
-      },
-    ];
-  }
-
-  List<Map<String, dynamic>>
-      _demoOrders() {
-    return [
-      {
-        'id': 104,
-        'machine_id': 1,
-        'problem':
-            'Excessive vibration',
-        'priority': 'high',
-        'status': 'pending',
-      },
-      {
-        'id': 109,
-        'machine_id': 2,
-        'problem':
-            'Temperature above normal',
-        'priority': 'medium',
-        'status':
-            'in_progress',
-      },
-    ];
-  }
-
-  List<Map<String, dynamic>>
-      _demoAlerts() {
-    return [
-      {
-        'id': 1,
-        'machine_id': 2,
-        'alert_type':
-            'temperature_anomaly',
-        'severity': 'warning',
-        'message':
-            'Pump P-02 temperature is above its recent baseline.',
-        'resolved': false,
-      },
-    ];
   }
 }
