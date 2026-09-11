@@ -1,0 +1,227 @@
+name: One-time UI fix
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  fix-ui:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Patch UI
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('lib/main.dart')
+          s = p.read_text()
+          old_import = "import 'package:shared_preferences/shared_preferences.dart';\n"
+          assert old_import in s
+          assert "import 'machine_details_page.dart';" not in s
+          s = s.replace(old_import, old_import + "import 'machine_details_page.dart';\n", 1)
+
+          old_tile = '''  Widget _machineTile(Map<String, dynamic> machine) {
+    final health = _number(machine['health_score']);
+
+    final color = health >= 70
+        ? Colors.greenAccent
+        : health >= 40
+            ? Colors.amberAccent
+            : Colors.redAccent;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: color.withOpacity(.12),
+          child: Icon(
+            Icons.precision_manufacturing,
+            color: color,
+          ),
+        ),
+        title: Text(
+          '${machine['name'] ?? 'Machine'}',
+          style: const TextStyle(fontWeight: FontWeight.w700),
+        ),
+        subtitle: Text(
+          '${machine['machine_code'] ?? '—'} • '
+          '${machine['location'] ?? '—'}',
+          style: const TextStyle(color: Colors.white54),
+        ),
+        trailing: Text(
+          '${health.toStringAsFixed(0)}%',
+          style: TextStyle(
+            color: color,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      ),
+    );
+  }
+'''
+          new_tile = '''  Widget _machineTile(Map<String, dynamic> machine) {
+    final health = _number(machine['health_score']);
+
+    final color = health >= 70
+        ? Colors.greenAccent
+        : health >= 40
+            ? Colors.amberAccent
+            : Colors.redAccent;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: ListTile(
+        onTap: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => MachineDetailsPage(
+                api: widget.api,
+                machine: machine,
+              ),
+            ),
+          );
+        },
+        leading: CircleAvatar(
+          backgroundColor: color.withOpacity(.12),
+          child: Icon(Icons.precision_manufacturing, color: color),
+        ),
+        title: Text(
+          '${machine['name'] ?? 'Machine'}',
+          style: const TextStyle(fontWeight: FontWeight.w700),
+        ),
+        subtitle: Text(
+          '${machine['machine_code'] ?? '—'} • ${machine['location'] ?? '—'}',
+          style: const TextStyle(color: Colors.white54),
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              '${health.toStringAsFixed(0)}%',
+              style: TextStyle(color: color, fontWeight: FontWeight.w900),
+            ),
+            const SizedBox(width: 6),
+            const Icon(Icons.chevron_right, color: Colors.white38),
+          ],
+        ),
+      ),
+    );
+  }
+'''
+          assert old_tile in s
+          s = s.replace(old_tile, new_tile, 1)
+
+          old_nav = '''      bottomNavigationBar: NavigationBar(
+        selectedIndex: tab,
+        onDestinationSelected: (index) {
+          setState(() {
+            tab = index;
+          });
+        },
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.dashboard_outlined),
+            selectedIcon: Icon(Icons.dashboard),
+            label: 'Home',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.precision_manufacturing_outlined),
+            selectedIcon: Icon(Icons.precision_manufacturing),
+            label: 'Machines',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.assignment_outlined),
+            selectedIcon: Icon(Icons.assignment),
+            label: 'Work Orders',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.report_problem_outlined),
+            selectedIcon: Icon(Icons.report_problem),
+            label: 'Faults',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.person_outline),
+            selectedIcon: Icon(Icons.person),
+            label: 'Profile',
+          ),
+        ],
+      ),
+'''
+          new_nav = '''      bottomNavigationBar: SafeArea(
+        minimum: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+        child: Container(
+          height: 68,
+          decoration: BoxDecoration(
+            color: const Color(0xFF111D2E),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: Colors.white.withOpacity(.07)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(.28),
+                blurRadius: 24,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+          child: Row(
+            children: [
+              _navItem(0, Icons.dashboard_outlined, Icons.dashboard, 'Home'),
+              _navItem(1, Icons.precision_manufacturing_outlined, Icons.precision_manufacturing, 'Machines'),
+              _navItem(2, Icons.assignment_outlined, Icons.assignment, 'Work'),
+              _navItem(3, Icons.report_problem_outlined, Icons.report_problem, 'Faults'),
+              _navItem(4, Icons.person_outline, Icons.person, 'Profile'),
+            ],
+          ),
+        ),
+      ),
+'''
+          assert old_nav in s
+          s = s.replace(old_nav, new_nav, 1)
+
+          marker = '  Widget _dashboardPage() {'
+          nav_method = '''  Widget _navItem(int index, IconData icon, IconData selectedIcon, String label) {
+    final selected = tab == index;
+    return Expanded(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: () => setState(() => tab = index),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          margin: const EdgeInsets.symmetric(horizontal: 2),
+          decoration: BoxDecoration(
+            color: selected ? Colors.lightBlueAccent.withOpacity(.13) : Colors.transparent,
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(selected ? selectedIcon : icon, size: 22, color: selected ? Colors.lightBlueAccent : Colors.white54),
+              const SizedBox(height: 3),
+              Text(label, style: TextStyle(fontSize: 10, fontWeight: selected ? FontWeight.w800 : FontWeight.w600, color: selected ? Colors.lightBlueAccent : Colors.white54)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+'''
+          assert marker in s
+          s = s.replace(marker, nav_method + marker, 1)
+          p.write_text(s)
+
+      - name: Commit and remove temporary workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/main.dart
+          git rm .github/workflows/one-time-ui-fix.yml
+          git commit -m "Add machine details navigation and refresh navbar"
+          git push origin HEAD:main
