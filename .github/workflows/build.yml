@@ -76,6 +76,50 @@ jobs:
             --platforms=android \
             .
 
+      - name: Ensure Android INTERNET permission
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("android/app/src/main/AndroidManifest.xml")
+
+          if not path.exists():
+              raise SystemExit(
+                  f"AndroidManifest.xml not found: {path}"
+              )
+
+          content = path.read_text()
+
+          permission = (
+              '<uses-permission '
+              'android:name="android.permission.INTERNET" />'
+          )
+
+          if permission not in content:
+              marker = '<application'
+
+              if marker not in content:
+                  raise SystemExit(
+                      "Could not find <application> "
+                      "in AndroidManifest.xml"
+                  )
+
+              content = content.replace(
+                  marker,
+                  f'    {permission}\n\n    {marker}',
+                  1,
+              )
+
+              path.write_text(content)
+
+          print("Android INTERNET permission verified.")
+
+          print("--- AndroidManifest.xml ---")
+          print(path.read_text())
+          print("--- End manifest ---")
+          PY
+
       - name: Build release APK
         run: flutter build apk --release
 
@@ -119,7 +163,9 @@ jobs:
       - name: Package iOS app
         run: |
           mkdir -p artifacts
-          cp -R build/ios/iphoneos/Runner.app \
+
+          cp -R \
+            build/ios/iphoneos/Runner.app \
             artifacts/WorkforceClient.app
 
       - name: Upload iOS artifact
