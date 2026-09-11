@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 const String apiBaseUrl = 'https://maintain-ai-3.vercel.app';
 
@@ -13,7 +14,33 @@ void main() {
 class ApiClient {
   String? token;
 
-  Map<String, String> get _headers {
+  Future<void> restoreToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    token = prefs.getString('worker_access_token');
+  }
+
+  Future<void> saveToken(String value) async {
+    token = value;
+
+    final prefs = await SharedPreferences.getInstance();
+
+    await prefs.setString(
+      'worker_access_token',
+      value,
+    );
+  }
+
+  Future<void> clearToken() async {
+    token = null;
+
+    final prefs = await SharedPreferences.getInstance();
+
+    await prefs.remove(
+      'worker_access_token',
+    );
+  }
+
+  Map<String, String> get headers {
     return {
       'Content-Type': 'application/json',
       if (token != null) 'Authorization': 'Bearer $token',
@@ -24,9 +51,11 @@ class ApiClient {
     final response = await http
         .get(
           Uri.parse('$apiBaseUrl$path'),
-          headers: _headers,
+          headers: headers,
         )
-        .timeout(const Duration(seconds: 12));
+        .timeout(
+          const Duration(seconds: 12),
+        );
 
     return _handleResponse(response);
   }
@@ -38,10 +67,12 @@ class ApiClient {
     final response = await http
         .post(
           Uri.parse('$apiBaseUrl$path'),
-          headers: _headers,
+          headers: headers,
           body: jsonEncode(body ?? {}),
         )
-        .timeout(const Duration(seconds: 12));
+        .timeout(
+          const Duration(seconds: 12),
+        );
 
     return _handleResponse(response);
   }
@@ -53,15 +84,19 @@ class ApiClient {
     final response = await http
         .patch(
           Uri.parse('$apiBaseUrl$path'),
-          headers: _headers,
+          headers: headers,
           body: jsonEncode(body ?? {}),
         )
-        .timeout(const Duration(seconds: 12));
+        .timeout(
+          const Duration(seconds: 12),
+        );
 
     return _handleResponse(response);
   }
 
-  dynamic _handleResponse(http.Response response) {
+  dynamic _handleResponse(
+    http.Response response,
+  ) {
     dynamic data;
 
     try {
@@ -70,11 +105,15 @@ class ApiClient {
       data = response.body;
     }
 
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      String message = 'HTTP ${response.statusCode}';
+    if (response.statusCode < 200 ||
+        response.statusCode >= 300) {
+      String message =
+          'HTTP ${response.statusCode}';
 
-      if (data is Map && data['detail'] != null) {
-        message = data['detail'].toString();
+      if (data is Map &&
+          data['detail'] != null) {
+        message =
+            data['detail'].toString();
       }
 
       throw ApiException(
@@ -91,7 +130,10 @@ class ApiException implements Exception {
   final String message;
   final int statusCode;
 
-  ApiException(this.message, this.statusCode);
+  ApiException(
+    this.message,
+    this.statusCode,
+  );
 
   @override
   String toString() => message;
@@ -101,20 +143,74 @@ class WorkforceApp extends StatefulWidget {
   const WorkforceApp({super.key});
 
   @override
-  State<WorkforceApp> createState() => _WorkforceAppState();
+  State<WorkforceApp> createState() =>
+      _WorkforceAppState();
 }
 
-class _WorkforceAppState extends State<WorkforceApp> {
+class _WorkforceAppState
+    extends State<WorkforceApp> {
   final ApiClient api = ApiClient();
 
+  bool initialized = false;
   bool authenticated = false;
+
   Map<String, dynamic>? worker;
 
-  void login(
+  @override
+  void initState() {
+    super.initState();
+    _restoreSession();
+  }
+
+  Future<void> _restoreSession() async {
+    await api.restoreToken();
+
+    if (api.token == null) {
+      if (!mounted) return;
+
+      setState(() {
+        initialized = true;
+      });
+
+      return;
+    }
+
+    try {
+      final response =
+          await api.get('/api/auth/me');
+
+      if (!mounted) return;
+
+      setState(() {
+        authenticated = true;
+
+        worker =
+            Map<String, dynamic>.from(
+          response,
+        );
+
+        initialized = true;
+      });
+    } catch (_) {
+      await api.clearToken();
+
+      if (!mounted) return;
+
+      setState(() {
+        authenticated = false;
+        worker = null;
+        initialized = true;
+      });
+    }
+  }
+
+  Future<void> login(
     String token,
     Map<String, dynamic> user,
-  ) {
-    api.token = token;
+  ) async {
+    await api.saveToken(token);
+
+    if (!mounted) return;
 
     setState(() {
       authenticated = true;
@@ -122,8 +218,10 @@ class _WorkforceAppState extends State<WorkforceApp> {
     });
   }
 
-  void logout() {
-    api.token = null;
+  Future<void> logout() async {
+    await api.clearToken();
+
+    if (!mounted) return;
 
     setState(() {
       authenticated = false;
@@ -133,17 +231,31 @@ class _WorkforceAppState extends State<WorkforceApp> {
 
   @override
   Widget build(BuildContext context) {
+    if (!initialized) {
+      return const MaterialApp(
+        debugShowCheckedModeBanner: false,
+        home: Scaffold(
+          body: Center(
+            child: CircularProgressIndicator(),
+          ),
+        ),
+      );
+    }
+
     return MaterialApp(
       title: 'Industrial Workforce',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
         brightness: Brightness.dark,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF3D8BFF),
+        colorScheme:
+            ColorScheme.fromSeed(
+          seedColor:
+              const Color(0xFF3D8BFF),
           brightness: Brightness.dark,
         ),
-        scaffoldBackgroundColor: const Color(0xFF08111F),
+        scaffoldBackgroundColor:
+            const Color(0xFF08111F),
         cardTheme: const CardTheme(
           color: Color(0xFF111D2E),
           elevation: 0,
@@ -164,9 +276,11 @@ class _WorkforceAppState extends State<WorkforceApp> {
   }
 }
 
-class WorkerLoginPage extends StatefulWidget {
+class WorkerLoginPage
+    extends StatefulWidget {
   final ApiClient api;
-  final void Function(
+
+  final Future<void> Function(
     String token,
     Map<String, dynamic> user,
   ) onLogin;
@@ -178,11 +292,15 @@ class WorkerLoginPage extends StatefulWidget {
   });
 
   @override
-  State<WorkerLoginPage> createState() => _WorkerLoginPageState();
+  State<WorkerLoginPage> createState() =>
+      _WorkerLoginPageState();
 }
 
-class _WorkerLoginPageState extends State<WorkerLoginPage> {
-  final usernameController = TextEditingController();
+class _WorkerLoginPageState
+    extends State<WorkerLoginPage> {
+  final TextEditingController
+      usernameController =
+      TextEditingController();
 
   bool loading = false;
   String? error;
@@ -194,12 +312,14 @@ class _WorkerLoginPageState extends State<WorkerLoginPage> {
   }
 
   Future<void> login() async {
-    final username = usernameController.text.trim();
+    final username =
+        usernameController.text.trim();
 
     if (username.isEmpty) {
       setState(() {
         error = 'Enter your username.';
       });
+
       return;
     }
 
@@ -209,27 +329,33 @@ class _WorkerLoginPageState extends State<WorkerLoginPage> {
     });
 
     try {
-      final response = await widget.api.post(
+      final response =
+          await widget.api.post(
         '/api/auth/worker-login',
         body: {
           'username': username,
         },
       );
 
-      widget.onLogin(
-        response['access_token'].toString(),
-        Map<String, dynamic>.from(response),
+      await widget.onLogin(
+        response['access_token']
+            .toString(),
+        Map<String, dynamic>.from(
+          response,
+        ),
       );
     } catch (e) {
+      if (!mounted) return;
+
       setState(() {
         error = e.toString();
       });
     } finally {
-      if (mounted) {
-        setState(() {
-          loading = false;
-        });
-      }
+      if (!mounted) return;
+
+      setState(() {
+        loading = false;
+      });
     }
   }
 
@@ -239,20 +365,28 @@ class _WorkerLoginPageState extends State<WorkerLoginPage> {
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
+            padding:
+                const EdgeInsets.all(24),
             child: ConstrainedBox(
-              constraints: const BoxConstraints(
+              constraints:
+                  const BoxConstraints(
                 maxWidth: 420,
               ),
               child: Card(
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(24),
+                shape:
+                    RoundedRectangleBorder(
+                  borderRadius:
+                      BorderRadius.circular(
+                    24,
+                  ),
                 ),
                 child: Padding(
-                  padding: const EdgeInsets.all(24),
+                  padding:
+                      const EdgeInsets.all(24),
                   child: Column(
                     crossAxisAlignment:
-                        CrossAxisAlignment.stretch,
+                        CrossAxisAlignment
+                            .stretch,
                     children: [
                       const CircleAvatar(
                         radius: 34,
@@ -261,69 +395,110 @@ class _WorkerLoginPageState extends State<WorkerLoginPage> {
                         child: Icon(
                           Icons.engineering,
                           size: 36,
-                          color: Colors.lightBlueAccent,
+                          color:
+                              Colors.lightBlueAccent,
                         ),
                       ),
-                      const SizedBox(height: 18),
+                      const SizedBox(
+                        height: 18,
+                      ),
                       const Text(
                         'Industrial Workforce',
-                        textAlign: TextAlign.center,
+                        textAlign:
+                            TextAlign.center,
                         style: TextStyle(
                           fontSize: 28,
-                          fontWeight: FontWeight.w900,
+                          fontWeight:
+                              FontWeight.w900,
                         ),
                       ),
-                      const SizedBox(height: 6),
+                      const SizedBox(
+                        height: 6,
+                      ),
                       const Text(
                         'Worker Client',
-                        textAlign: TextAlign.center,
+                        textAlign:
+                            TextAlign.center,
                         style: TextStyle(
-                          color: Colors.white54,
+                          color:
+                              Colors.white54,
                         ),
                       ),
-                      const SizedBox(height: 28),
+                      const SizedBox(
+                        height: 28,
+                      ),
                       TextField(
-                        controller: usernameController,
+                        controller:
+                            usernameController,
                         textInputAction:
                             TextInputAction.done,
-                        onSubmitted: (_) => login(),
+                        onSubmitted: (_) =>
+                            login(),
                         decoration:
                             const InputDecoration(
-                          labelText: 'Username',
-                          hintText: 'worker01',
+                          labelText:
+                              'Username',
+                          hintText:
+                              'worker01',
                           prefixIcon:
-                              Icon(Icons.person_outline),
+                              Icon(
+                            Icons
+                                .person_outline,
+                          ),
                         ),
                       ),
                       if (error != null) ...[
-                        const SizedBox(height: 12),
+                        const SizedBox(
+                          height: 12,
+                        ),
                         Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color:
-                                Colors.redAccent.withOpacity(.10),
+                          padding:
+                              const EdgeInsets
+                                  .all(12),
+                          decoration:
+                              BoxDecoration(
+                            color: Colors
+                                .redAccent
+                                .withOpacity(
+                              .10,
+                            ),
                             borderRadius:
-                                BorderRadius.circular(12),
-                            border: Border.all(
-                              color:
-                                  Colors.redAccent.withOpacity(.25),
+                                BorderRadius
+                                    .circular(
+                              12,
+                            ),
+                            border:
+                                Border.all(
+                              color: Colors
+                                  .redAccent
+                                  .withOpacity(
+                                .25,
+                              ),
                             ),
                           ),
                           child: Text(
                             error!,
-                            style: const TextStyle(
-                              color: Colors.redAccent,
+                            style:
+                                const TextStyle(
+                              color:
+                                  Colors.redAccent,
                             ),
                           ),
                         ),
                       ],
-                      const SizedBox(height: 18),
+                      const SizedBox(
+                        height: 18,
+                      ),
                       FilledButton(
                         onPressed:
-                            loading ? null : login,
-                        style: FilledButton.styleFrom(
+                            loading
+                                ? null
+                                : login,
+                        style:
+                            FilledButton.styleFrom(
                           padding:
-                              const EdgeInsets.symmetric(
+                              const EdgeInsets
+                                  .symmetric(
                             vertical: 15,
                           ),
                         ),
@@ -333,22 +508,30 @@ class _WorkerLoginPageState extends State<WorkerLoginPage> {
                                 height: 20,
                                 child:
                                     CircularProgressIndicator(
-                                  strokeWidth: 2,
+                                  strokeWidth:
+                                      2,
                                 ),
                               )
                             : const Text(
                                 'Continue',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w700,
+                                style:
+                                    TextStyle(
+                                  fontWeight:
+                                      FontWeight
+                                          .w700,
                                 ),
                               ),
                       ),
-                      const SizedBox(height: 14),
+                      const SizedBox(
+                        height: 14,
+                      ),
                       const Text(
                         'Use the username created by your company administrator.',
-                        textAlign: TextAlign.center,
+                        textAlign:
+                            TextAlign.center,
                         style: TextStyle(
-                          color: Colors.white38,
+                          color:
+                              Colors.white38,
                           fontSize: 12,
                         ),
                       ),
@@ -364,10 +547,12 @@ class _WorkerLoginPageState extends State<WorkerLoginPage> {
   }
 }
 
-class WorkforceHome extends StatefulWidget {
+class WorkforceHome
+    extends StatefulWidget {
   final ApiClient api;
   final Map<String, dynamic> worker;
-  final VoidCallback onLogout;
+  final Future<void> Function()
+      onLogout;
 
   const WorkforceHome({
     super.key,
@@ -377,20 +562,26 @@ class WorkforceHome extends StatefulWidget {
   });
 
   @override
-  State<WorkforceHome> createState() => _WorkforceHomeState();
+  State<WorkforceHome> createState() =>
+      _WorkforceHomeState();
 }
 
-class _WorkforceHomeState extends State<WorkforceHome> {
+class _WorkforceHomeState
+    extends State<WorkforceHome> {
   int tab = 0;
+
   bool loading = true;
   bool syncing = false;
 
   String? message;
-  Timer? timer;
 
-  List<Map<String, dynamic>> machines = [];
-  List<Map<String, dynamic>> orders = [];
-  List<Map<String, dynamic>> faults = [];
+  Timer? refreshTimer;
+
+  List<Map<String, dynamic>>
+      machines = [];
+
+  List<Map<String, dynamic>>
+      orders = [];
 
   @override
   void initState() {
@@ -398,22 +589,27 @@ class _WorkforceHomeState extends State<WorkforceHome> {
 
     refresh();
 
-    timer = Timer.periodic(
+    refreshTimer =
+        Timer.periodic(
       const Duration(seconds: 10),
-      (_) => refresh(silent: true),
+      (_) => refresh(
+        silent: true,
+      ),
     );
   }
 
   @override
   void dispose() {
-    timer?.cancel();
+    refreshTimer?.cancel();
     super.dispose();
   }
 
   Future<void> refresh({
     bool silent = false,
   }) async {
-    if (syncing) return;
+    if (syncing) {
+      return;
+    }
 
     syncing = true;
 
@@ -425,18 +621,41 @@ class _WorkforceHomeState extends State<WorkforceHome> {
     }
 
     try {
-      final results = await Future.wait<dynamic>([
-        widget.api.get('/api/machines'),
-        widget.api.get('/api/work-orders'),
-      ]);
+      final results =
+          await Future.wait<dynamic>(
+        [
+          widget.api.get(
+            '/api/machines',
+          ),
+          widget.api.get(
+            '/api/work-orders',
+          ),
+        ],
+      );
 
       if (!mounted) return;
 
       setState(() {
-        machines = _maps(results[0]);
-        orders = _maps(results[1]);
+        machines =
+            _maps(results[0]);
+
+        orders =
+            _maps(results[1]);
+
         loading = false;
         message = null;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+
+      if (e.statusCode == 401) {
+        await widget.onLogout();
+        return;
+      }
+
+      setState(() {
+        loading = false;
+        message = e.message;
       });
     } catch (e) {
       if (!mounted) return;
@@ -450,7 +669,8 @@ class _WorkforceHomeState extends State<WorkforceHome> {
     }
   }
 
-  List<Map<String, dynamic>> _maps(dynamic value) {
+  List<Map<String, dynamic>>
+      _maps(dynamic value) {
     if (value is! List) {
       return [];
     }
@@ -459,13 +679,18 @@ class _WorkforceHomeState extends State<WorkforceHome> {
         .whereType<Map>()
         .map(
           (item) =>
-              Map<String, dynamic>.from(item),
+              Map<String, dynamic>.from(
+            item,
+          ),
         )
         .toList();
   }
 
   double _number(dynamic value) {
-    return double.tryParse('$value') ?? 0;
+    return double.tryParse(
+          '$value',
+        ) ??
+        0;
   }
 
   Future<void> updateOrder(
@@ -483,10 +708,25 @@ class _WorkforceHomeState extends State<WorkforceHome> {
         },
       );
 
-      _snack('Work order updated.');
-      await refresh(silent: true);
+      _showSnack(
+        'Work order updated.',
+      );
+
+      await refresh(
+        silent: true,
+      );
+    } on ApiException catch (e) {
+      if (e.statusCode == 401) {
+        await widget.onLogout();
+        return;
+      }
+
+      _showSnack(
+        e.message,
+        error: true,
+      );
     } catch (e) {
-      _snack(
+      _showSnack(
         'Could not update work order: $e',
         error: true,
       );
@@ -495,10 +735,11 @@ class _WorkforceHomeState extends State<WorkforceHome> {
 
   Future<void> reportFault() async {
     if (machines.isEmpty) {
-      _snack(
+      _showSnack(
         'No assigned machines are available.',
         error: true,
       );
+
       return;
     }
 
@@ -527,48 +768,69 @@ class _WorkforceHomeState extends State<WorkforceHome> {
             setSheetState,
           ) {
             return Padding(
-              padding: EdgeInsets.fromLTRB(
+              padding:
+                  EdgeInsets.fromLTRB(
                 20,
                 8,
                 20,
-                MediaQuery.of(context)
+                MediaQuery.of(
+                      context,
+                    )
                         .viewInsets
                         .bottom +
                     20,
               ),
-              child: SingleChildScrollView(
+              child:
+                  SingleChildScrollView(
                 child: Column(
                   crossAxisAlignment:
-                      CrossAxisAlignment.start,
+                      CrossAxisAlignment
+                          .start,
                   children: [
                     const Text(
                       'Report Fault / Anomaly',
                       style: TextStyle(
                         fontSize: 24,
-                        fontWeight: FontWeight.w900,
+                        fontWeight:
+                            FontWeight.w900,
                       ),
                     ),
-                    const SizedBox(height: 6),
+                    const SizedBox(
+                      height: 6,
+                    ),
                     const Text(
                       'Report anything unusual you observe on an assigned machine.',
-                      style: TextStyle(
-                        color: Colors.white54,
+                      style:
+                          TextStyle(
+                        color:
+                            Colors.white54,
                       ),
                     ),
-                    const SizedBox(height: 18),
+                    const SizedBox(
+                      height: 18,
+                    ),
                     DropdownButtonFormField<int>(
-                      value: selectedMachine,
+                      value:
+                          selectedMachine,
                       decoration:
                           const InputDecoration(
-                        labelText: 'Machine',
+                        labelText:
+                            'Machine',
                         prefixIcon:
-                            Icon(Icons.precision_manufacturing),
+                            Icon(
+                          Icons
+                              .precision_manufacturing,
+                        ),
                       ),
-                      items: machines.map(
-                        (machine) {
+                      items:
+                          machines.map(
+                        (
+                          machine,
+                        ) {
                           return DropdownMenuItem<int>(
                             value:
-                                machine['id'] as int,
+                                machine[
+                                    'id'] as int,
                             child: Text(
                               '${machine['name']} '
                               '(${machine['machine_code']})',
@@ -576,97 +838,144 @@ class _WorkforceHomeState extends State<WorkforceHome> {
                           );
                         },
                       ).toList(),
-                      onChanged: (value) {
-                        if (value != null) {
-                          setSheetState(() {
-                            selectedMachine =
-                                value;
-                          });
+                      onChanged: (
+                        value,
+                      ) {
+                        if (value !=
+                            null) {
+                          setSheetState(
+                            () {
+                              selectedMachine =
+                                  value;
+                            },
+                          );
                         }
                       },
                     ),
-                    const SizedBox(height: 14),
+                    const SizedBox(
+                      height: 14,
+                    ),
                     DropdownButtonFormField<String>(
                       value: severity,
                       decoration:
                           const InputDecoration(
-                        labelText: 'Severity',
+                        labelText:
+                            'Severity',
                       ),
                       items: const [
                         DropdownMenuItem(
-                          value: 'normal',
-                          child: Text('Normal'),
+                          value:
+                              'normal',
+                          child:
+                              Text(
+                            'Normal',
+                          ),
                         ),
                         DropdownMenuItem(
-                          value: 'warning',
-                          child: Text('Warning'),
+                          value:
+                              'warning',
+                          child:
+                              Text(
+                            'Warning',
+                          ),
                         ),
                         DropdownMenuItem(
-                          value: 'high',
-                          child: Text('High'),
+                          value:
+                              'high',
+                          child:
+                              Text(
+                            'High',
+                          ),
                         ),
                         DropdownMenuItem(
-                          value: 'critical',
-                          child: Text('Critical'),
+                          value:
+                              'critical',
+                          child:
+                              Text(
+                            'Critical',
+                          ),
                         ),
                       ],
-                      onChanged: (value) {
-                        if (value != null) {
-                          setSheetState(() {
-                            severity = value;
-                          });
+                      onChanged: (
+                        value,
+                      ) {
+                        if (value !=
+                            null) {
+                          setSheetState(
+                            () {
+                              severity =
+                                  value;
+                            },
+                          );
                         }
                       },
                     ),
-                    const SizedBox(height: 14),
+                    const SizedBox(
+                      height: 14,
+                    ),
                     TextField(
                       controller:
                           descriptionController,
                       maxLines: 3,
                       decoration:
                           const InputDecoration(
-                        labelText: 'What is wrong?',
+                        labelText:
+                            'What is wrong?',
                         hintText:
                             'Example: Unusual vibration near the drive end.',
                       ),
                     ),
-                    const SizedBox(height: 14),
+                    const SizedBox(
+                      height: 14,
+                    ),
                     TextField(
                       controller:
                           symptomsController,
                       maxLines: 3,
                       decoration:
                           const InputDecoration(
-                        labelText: 'Symptoms / observations',
+                        labelText:
+                            'Symptoms / observations',
                         hintText:
                             'Example: Noise increased after startup.',
                       ),
                     ),
-                    const SizedBox(height: 18),
+                    const SizedBox(
+                      height: 18,
+                    ),
                     SizedBox(
-                      width: double.infinity,
-                      child: FilledButton.icon(
-                        onPressed: () async {
+                      width:
+                          double.infinity,
+                      child:
+                          FilledButton.icon(
+                        onPressed:
+                            () async {
                           final description =
                               descriptionController
                                   .text
                                   .trim();
 
-                          if (description.isEmpty) {
-                            ScaffoldMessenger.of(
+                          if (description
+                              .isEmpty) {
+                            ScaffoldMessenger
+                                .of(
                               context,
                             ).showSnackBar(
                               const SnackBar(
-                                content: Text(
+                                content:
+                                    Text(
                                   'Describe the fault first.',
                                 ),
                               ),
                             );
+
                             return;
                           }
 
                           try {
-                            await widget.api.post(
+                            await widget
+                                .api
+                                .post(
                               '/api/faults',
                               body: {
                                 'machine_id':
@@ -687,19 +996,38 @@ class _WorkforceHomeState extends State<WorkforceHome> {
                               },
                             );
 
-                            if (context.mounted) {
+                            if (context
+                                .mounted) {
                               Navigator.pop(
                                 context,
                                 true,
                               );
                             }
-                          } catch (e) {
-                            if (context.mounted) {
-                              ScaffoldMessenger.of(
+                          } on ApiException catch (e) {
+                            if (context
+                                .mounted) {
+                              ScaffoldMessenger
+                                  .of(
                                 context,
                               ).showSnackBar(
                                 SnackBar(
-                                  content: Text(
+                                  content:
+                                      Text(
+                                    e.message,
+                                  ),
+                                ),
+                              );
+                            }
+                          } catch (e) {
+                            if (context
+                                .mounted) {
+                              ScaffoldMessenger
+                                  .of(
+                                context,
+                              ).showSnackBar(
+                                SnackBar(
+                                  content:
+                                      Text(
                                     'Could not report fault: $e',
                                   ),
                                 ),
@@ -707,10 +1035,13 @@ class _WorkforceHomeState extends State<WorkforceHome> {
                             }
                           }
                         },
-                        icon: const Icon(
-                          Icons.report_problem_outlined,
+                        icon:
+                            const Icon(
+                          Icons
+                              .report_problem_outlined,
                         ),
-                        label: const Text(
+                        label:
+                            const Text(
                           'Submit Fault Report',
                         ),
                       ),
@@ -724,25 +1055,36 @@ class _WorkforceHomeState extends State<WorkforceHome> {
       },
     );
 
-    descriptionController.dispose();
+    descriptionController
+        .dispose();
+
     symptomsController.dispose();
 
-    if (result == true && mounted) {
-      _snack('Fault reported successfully.');
-      await refresh(silent: true);
+    if (result == true &&
+        mounted) {
+      _showSnack(
+        'Fault reported successfully.',
+      );
+
+      await refresh(
+        silent: true,
+      );
     }
   }
 
-  void _snack(
+  void _showSnack(
     String text, {
     bool error = false,
   }) {
     if (!mounted) return;
 
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(
       SnackBar(
         content: Text(text),
-        behavior: SnackBarBehavior.floating,
+        behavior:
+            SnackBarBehavior.floating,
         backgroundColor: error
             ? const Color(0xFF7C2231)
             : const Color(0xFF17402C),
@@ -759,13 +1101,21 @@ class _WorkforceHomeState extends State<WorkforceHome> {
       _profilePage(),
     ];
 
+    final name =
+        widget.worker['full_name']
+            ?.toString();
+
+    final username =
+        widget.worker['username']
+            ?.toString() ??
+            'worker';
+
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          widget.worker['full_name']?.toString().isNotEmpty ==
-                  true
-              ? widget.worker['full_name'].toString()
-              : widget.worker['username'].toString(),
+          name?.isNotEmpty == true
+              ? name!
+              : username,
           style: const TextStyle(
             fontWeight: FontWeight.w800,
           ),
@@ -773,7 +1123,8 @@ class _WorkforceHomeState extends State<WorkforceHome> {
         actions: [
           if (loading)
             const Padding(
-              padding: EdgeInsets.all(15),
+              padding:
+                  EdgeInsets.all(15),
               child: SizedBox(
                 width: 18,
                 height: 18,
@@ -784,27 +1135,43 @@ class _WorkforceHomeState extends State<WorkforceHome> {
               ),
             ),
           IconButton(
-            onPressed: () => refresh(),
-            icon: const Icon(Icons.refresh),
+            onPressed: () =>
+                refresh(),
+            tooltip:
+                'Refresh',
+            icon:
+                const Icon(
+              Icons.refresh,
+            ),
           ),
         ],
       ),
-      body: pages[tab],
+
+      body:
+          pages[tab],
+
       floatingActionButton:
           tab == 0 || tab == 1
               ? FloatingActionButton.extended(
-                  onPressed: reportFault,
-                  icon: const Icon(
-                    Icons.report_problem_outlined,
+                  onPressed:
+                      reportFault,
+                  icon:
+                      const Icon(
+                    Icons
+                        .report_problem_outlined,
                   ),
-                  label: const Text(
+                  label:
+                      const Text(
                     'Report Fault',
                   ),
                 )
               : null,
-      bottomNavigationBar: NavigationBar(
+
+      bottomNavigationBar:
+          NavigationBar(
         selectedIndex: tab,
-        onDestinationSelected: (index) {
+        onDestinationSelected:
+            (index) {
           setState(() {
             tab = index;
           });
@@ -812,24 +1179,31 @@ class _WorkforceHomeState extends State<WorkforceHome> {
         destinations: const [
           NavigationDestination(
             icon: Icon(
-              Icons.dashboard_outlined,
+              Icons
+                  .dashboard_outlined,
             ),
             selectedIcon:
-                Icon(Icons.dashboard),
+                Icon(
+              Icons.dashboard,
+            ),
             label: 'Home',
           ),
           NavigationDestination(
             icon: Icon(
-              Icons.precision_manufacturing_outlined,
+              Icons
+                  .precision_manufacturing_outlined,
             ),
-            selectedIcon: Icon(
-              Icons.precision_manufacturing,
+            selectedIcon:
+                Icon(
+              Icons
+                  .precision_manufacturing,
             ),
             label: 'Machines',
           ),
           NavigationDestination(
             icon: Icon(
-              Icons.assignment_outlined,
+              Icons
+                  .assignment_outlined,
             ),
             selectedIcon:
                 Icon(Icons.assignment),
@@ -858,7 +1232,9 @@ class _WorkforceHomeState extends State<WorkforceHome> {
                     machine['health_score'],
                   ),
                 )
-                .reduce((a, b) => a + b) /
+                .reduce(
+                  (a, b) => a + b,
+                ) /
             machines.length;
 
     final activeOrders = orders
@@ -870,15 +1246,14 @@ class _WorkforceHomeState extends State<WorkforceHome> {
         )
         .length;
 
-    final critical = machines
-        .where(
-          (machine) =>
-              _number(
-                machine['health_score'],
-              ) <
-              40,
-        )
-        .length;
+    final critical =
+        machines.where(
+      (machine) =>
+          _number(
+            machine['health_score'],
+          ) <
+          40,
+    ).length;
 
     return RefreshIndicator(
       onRefresh: refresh,
@@ -889,51 +1264,71 @@ class _WorkforceHomeState extends State<WorkforceHome> {
             const EdgeInsets.all(16),
         children: [
           if (message != null)
-            _statusBanner(message!),
+            _statusBanner(
+              message!,
+            ),
 
-          _hero(averageHealth),
+          _hero(
+            averageHealth,
+          ),
 
-          const SizedBox(height: 14),
+          const SizedBox(
+            height: 14,
+          ),
 
           Row(
             children: [
               Expanded(
-                child: _metricCard(
+                child:
+                    _metricCard(
                   'Machines',
                   '${machines.length}',
-                  Icons.precision_manufacturing,
+                  Icons
+                      .precision_manufacturing,
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(
+                width: 10,
+              ),
               Expanded(
-                child: _metricCard(
+                child:
+                    _metricCard(
                   'Open Jobs',
                   '$activeOrders',
                   Icons.assignment,
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(
+                width: 10,
+              ),
               Expanded(
-                child: _metricCard(
+                child:
+                    _metricCard(
                   'Critical',
                   '$critical',
-                  Icons.warning_amber,
+                  Icons
+                      .warning_amber,
                 ),
               ),
             ],
           ),
 
-          const SizedBox(height: 22),
+          const SizedBox(
+            height: 22,
+          ),
 
           const Text(
             'Assigned Machines',
             style: TextStyle(
               fontSize: 20,
-              fontWeight: FontWeight.w800,
+              fontWeight:
+                  FontWeight.w800,
             ),
           ),
 
-          const SizedBox(height: 10),
+          const SizedBox(
+            height: 10,
+          ),
 
           if (machines.isEmpty)
             _empty(
@@ -941,18 +1336,26 @@ class _WorkforceHomeState extends State<WorkforceHome> {
               'Your administrator has not assigned any machines yet.',
             )
           else
-            ...machines.take(5).map(_machineTile),
+            ...machines
+                .take(5)
+                .map(
+                  _machineTile,
+                ),
 
-          const SizedBox(height: 18),
+          const SizedBox(
+            height: 18,
+          ),
 
           Row(
             children: [
               const Expanded(
                 child: Text(
                   'My Work',
-                  style: TextStyle(
+                  style:
+                      TextStyle(
                     fontSize: 20,
-                    fontWeight: FontWeight.w800,
+                    fontWeight:
+                        FontWeight.w800,
                   ),
                 ),
               ),
@@ -962,7 +1365,8 @@ class _WorkforceHomeState extends State<WorkforceHome> {
                     tab = 2;
                   });
                 },
-                child: const Text(
+                child:
+                    const Text(
                   'View all',
                 ),
               ),
@@ -977,8 +1381,90 @@ class _WorkforceHomeState extends State<WorkforceHome> {
           else
             ...orders
                 .take(3)
-                .map(_orderPreview),
+                .map(
+                  _orderPreview,
+                ),
         ],
+      ),
+    );
+  }
+
+  Widget _hero(
+    double average,
+  ) {
+    final color = average >= 70
+        ? Colors.greenAccent
+        : average >= 40
+            ? Colors.amberAccent
+            : Colors.redAccent;
+
+    return Card(
+      shape:
+          RoundedRectangleBorder(
+        borderRadius:
+            BorderRadius.circular(
+          22,
+        ),
+      ),
+      child: Padding(
+        padding:
+            const EdgeInsets.all(20),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment:
+                    CrossAxisAlignment
+                        .start,
+                children: [
+                  const Text(
+                    'Worker Dashboard',
+                    style:
+                        TextStyle(
+                      color:
+                          Colors.white60,
+                    ),
+                  ),
+                  const SizedBox(
+                    height: 4,
+                  ),
+                  Text(
+                    average == 0
+                        ? '—'
+                        : '${average.toStringAsFixed(0)}%',
+                    style:
+                        TextStyle(
+                      fontSize: 42,
+                      fontWeight:
+                          FontWeight.w900,
+                      color: color,
+                    ),
+                  ),
+                  const Text(
+                    'Average machine health',
+                    style:
+                        TextStyle(
+                      color:
+                          Colors.white54,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            CircleAvatar(
+              radius: 34,
+              backgroundColor:
+                  color.withOpacity(
+                .12,
+              ),
+              child: Icon(
+                Icons.engineering,
+                size: 34,
+                color: color,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -994,26 +1480,36 @@ class _WorkforceHomeState extends State<WorkforceHome> {
         children: [
           const Text(
             'My Machines',
-            style: TextStyle(
+            style:
+                TextStyle(
               fontSize: 27,
-              fontWeight: FontWeight.w900,
+              fontWeight:
+                  FontWeight.w900,
             ),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(
+            height: 6,
+          ),
           const Text(
             'Only machines assigned to your account are shown.',
-            style: TextStyle(
-              color: Colors.white54,
+            style:
+                TextStyle(
+              color:
+                  Colors.white54,
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(
+            height: 16,
+          ),
           if (machines.isEmpty)
             _empty(
               'No machines assigned',
               'Contact your administrator to receive machine assignments.',
             )
           else
-            ...machines.map(_machineTile),
+            ...machines.map(
+              _machineTile,
+            ),
         ],
       ),
     );
@@ -1023,7 +1519,9 @@ class _WorkforceHomeState extends State<WorkforceHome> {
     Map<String, dynamic> machine,
   ) {
     final health =
-        _number(machine['health_score']);
+        _number(
+      machine['health_score'],
+    );
 
     final color = health >= 70
         ? Colors.greenAccent
@@ -1037,32 +1535,41 @@ class _WorkforceHomeState extends State<WorkforceHome> {
         bottom: 10,
       ),
       child: ListTile(
-        leading: CircleAvatar(
+        leading:
+            CircleAvatar(
           backgroundColor:
-              color.withOpacity(.12),
+              color.withOpacity(
+            .12,
+          ),
           child: Icon(
-            Icons.precision_manufacturing,
+            Icons
+                .precision_manufacturing,
             color: color,
           ),
         ),
         title: Text(
           '${machine['name'] ?? 'Machine'}',
-          style: const TextStyle(
-            fontWeight: FontWeight.w700,
+          style:
+              const TextStyle(
+            fontWeight:
+                FontWeight.w700,
           ),
         ),
         subtitle: Text(
           '${machine['machine_code'] ?? '—'} • '
           '${machine['location'] ?? '—'}',
-          style: const TextStyle(
-            color: Colors.white54,
+          style:
+              const TextStyle(
+            color:
+                Colors.white54,
           ),
         ),
         trailing: Text(
           '${health.toStringAsFixed(0)}%',
           style: TextStyle(
             color: color,
-            fontWeight: FontWeight.w900,
+            fontWeight:
+                FontWeight.w900,
           ),
         ),
       ),
@@ -1080,26 +1587,36 @@ class _WorkforceHomeState extends State<WorkforceHome> {
         children: [
           const Text(
             'My Work Orders',
-            style: TextStyle(
+            style:
+                TextStyle(
               fontSize: 27,
-              fontWeight: FontWeight.w900,
+              fontWeight:
+                  FontWeight.w900,
             ),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(
+            height: 6,
+          ),
           const Text(
             'Jobs assigned to your account.',
-            style: TextStyle(
-              color: Colors.white54,
+            style:
+                TextStyle(
+              color:
+                  Colors.white54,
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(
+            height: 16,
+          ),
           if (orders.isEmpty)
             _empty(
               'No work orders',
               'You currently have no assigned work.',
             )
           else
-            ...orders.map(_workOrderCard),
+            ...orders.map(
+              _workOrderCard,
+            ),
         ],
       ),
     );
@@ -1134,7 +1651,8 @@ class _WorkforceHomeState extends State<WorkforceHome> {
             const EdgeInsets.all(15),
         child: Column(
           crossAxisAlignment:
-              CrossAxisAlignment.start,
+              CrossAxisAlignment
+                  .start,
           children: [
             Row(
               children: [
@@ -1154,19 +1672,27 @@ class _WorkforceHomeState extends State<WorkforceHome> {
                 ),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(
+              height: 8,
+            ),
             Text(
               '${order['problem'] ?? 'Maintenance work'}',
-              style: const TextStyle(
+              style:
+                  const TextStyle(
                 fontSize: 17,
-                fontWeight: FontWeight.w700,
+                fontWeight:
+                    FontWeight.w700,
               ),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(
+              height: 4,
+            ),
             Text(
               'Machine #${order['machine_id'] ?? '—'}',
-              style: const TextStyle(
-                color: Colors.white54,
+              style:
+                  const TextStyle(
+                color:
+                    Colors.white54,
               ),
             ),
             if ('${order['recommended_actions'] ?? ''}'
@@ -1177,50 +1703,66 @@ class _WorkforceHomeState extends State<WorkforceHome> {
                     const EdgeInsets.only(
                   top: 8,
                 ),
-                child: Text(
+                child:
+                    Text(
                   '${order['recommended_actions']}',
                   style:
                       const TextStyle(
-                    color: Colors.white70,
+                    color:
+                        Colors.white70,
                   ),
                 ),
               ),
-            const SizedBox(height: 12),
+            const SizedBox(
+              height: 12,
+            ),
             Row(
               children: [
                 _chip(
                   status
-                      .replaceAll('_', ' ')
+                      .replaceAll(
+                        '_',
+                        ' ',
+                      )
                       .toUpperCase(),
                   status == 'completed'
                       ? Colors.greenAccent
-                      : Colors.lightBlueAccent,
+                      : Colors
+                          .lightBlueAccent,
                 ),
                 const Spacer(),
-                if (status == 'pending')
+                if (status ==
+                    'pending')
                   OutlinedButton.icon(
-                    onPressed: () =>
-                        updateOrder(
+                    onPressed:
+                        () =>
+                            updateOrder(
                       order,
                       'in_progress',
                     ),
-                    icon: const Icon(
+                    icon:
+                        const Icon(
                       Icons.check,
                     ),
-                    label: const Text(
+                    label:
+                        const Text(
                       'Acknowledge',
                     ),
                   ),
-                if (status == 'in_progress')
+                if (status ==
+                    'in_progress')
                   FilledButton.icon(
-                    onPressed: () =>
-                        _resolveOrder(
+                    onPressed:
+                        () =>
+                            _resolveOrder(
                       order,
                     ),
-                    icon: const Icon(
+                    icon:
+                        const Icon(
                       Icons.done_all,
                     ),
-                    label: const Text(
+                    label:
+                        const Text(
                       'Resolve',
                     ),
                   ),
@@ -1232,7 +1774,8 @@ class _WorkforceHomeState extends State<WorkforceHome> {
     );
   }
 
-  Future<void> _resolveOrder(
+  Future<void>
+      _resolveOrder(
     Map<String, dynamic> order,
   ) async {
     final controller =
@@ -1241,13 +1784,15 @@ class _WorkforceHomeState extends State<WorkforceHome> {
     final notes =
         await showDialog<String>(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (_) =>
+          AlertDialog(
         title:
             const Text(
           'Resolve work order',
         ),
         content: TextField(
-          controller: controller,
+          controller:
+              controller,
           maxLines: 4,
           decoration:
               const InputDecoration(
@@ -1260,18 +1805,26 @@ class _WorkforceHomeState extends State<WorkforceHome> {
         actions: [
           TextButton(
             onPressed: () =>
-                Navigator.pop(context),
+                Navigator.pop(
+              context,
+            ),
             child:
-                const Text('Cancel'),
+                const Text(
+              'Cancel',
+            ),
           ),
           FilledButton(
             onPressed: () =>
                 Navigator.pop(
               context,
-              controller.text.trim(),
+              controller
+                  .text
+                  .trim(),
             ),
             child:
-                const Text('Resolve'),
+                const Text(
+              'Resolve',
+            ),
           ),
         ],
       ),
@@ -1293,15 +1846,18 @@ class _WorkforceHomeState extends State<WorkforceHome> {
 
   Widget _profilePage() {
     final username =
-        widget.worker['username']?.toString() ??
+        widget.worker['username']
+            ?.toString() ??
             'worker';
 
     final name =
-        widget.worker['full_name']?.toString();
+        widget.worker['full_name']
+            ?.toString();
 
     final organization =
-        widget.worker['organization_name']
-                ?.toString() ??
+        widget.worker[
+                  'organization_name']
+              ?.toString() ??
             'Organization';
 
     return ListView(
@@ -1312,7 +1868,9 @@ class _WorkforceHomeState extends State<WorkforceHome> {
           shape:
               RoundedRectangleBorder(
             borderRadius:
-                BorderRadius.circular(20),
+                BorderRadius.circular(
+              20,
+            ),
           ),
           child: Padding(
             padding:
@@ -1326,14 +1884,19 @@ class _WorkforceHomeState extends State<WorkforceHome> {
                     size: 30,
                   ),
                 ),
-                const SizedBox(width: 14),
+                const SizedBox(
+                  width: 14,
+                ),
                 Expanded(
-                  child: Column(
+                  child:
+                      Column(
                     crossAxisAlignment:
-                        CrossAxisAlignment.start,
+                        CrossAxisAlignment
+                            .start,
                     children: [
                       Text(
-                        name?.isNotEmpty == true
+                        name?.isNotEmpty ==
+                                true
                             ? name!
                             : username,
                         style:
@@ -1369,30 +1932,42 @@ class _WorkforceHomeState extends State<WorkforceHome> {
             ),
           ),
         ),
-        const SizedBox(height: 14),
+        const SizedBox(
+          height: 14,
+        ),
         Card(
           child: ListTile(
-            leading: const Icon(
+            leading:
+                const Icon(
               Icons.badge_outlined,
             ),
             title:
-                const Text('Role'),
-            subtitle: Text(
-              widget.worker['role']
-                      ?.toString()
-                      .toUpperCase() ??
+                const Text(
+              'Role',
+            ),
+            subtitle:
+                Text(
+              widget.worker[
+                        'role']
+                    ?.toString()
+                    .toUpperCase() ??
                   'TECHNICIAN',
             ),
           ),
         ),
         Card(
           child: ListTile(
-            leading: const Icon(
-              Icons.precision_manufacturing_outlined,
+            leading:
+                const Icon(
+              Icons
+                  .precision_manufacturing_outlined,
             ),
             title:
-                const Text('Assigned Machines'),
-            trailing: Text(
+                const Text(
+              'Assigned Machines',
+            ),
+            trailing:
+                Text(
               '${machines.length}',
               style:
                   const TextStyle(
@@ -1403,13 +1978,20 @@ class _WorkforceHomeState extends State<WorkforceHome> {
             ),
           ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(
+          height: 12,
+        ),
         FilledButton.tonalIcon(
-          onPressed: widget.onLogout,
+          onPressed:
+              widget.onLogout,
           icon:
-              const Icon(Icons.logout),
+              const Icon(
+            Icons.logout,
+          ),
           label:
-              const Text('Sign Out'),
+              const Text(
+            'Sign Out',
+          ),
         ),
       ],
     );
@@ -1431,7 +2013,9 @@ class _WorkforceHomeState extends State<WorkforceHome> {
               color:
                   Colors.lightBlueAccent,
             ),
-            const SizedBox(height: 5),
+            const SizedBox(
+              height: 5,
+            ),
             Text(
               value,
               style:
@@ -1451,33 +2035,6 @@ class _WorkforceHomeState extends State<WorkforceHome> {
               ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-
-  Widget _wideMetric(
-    String label,
-    String value,
-    IconData icon,
-    Color color,
-  ) {
-    return Card(
-      child: ListTile(
-        leading: Icon(
-          icon,
-          color: color,
-        ),
-        title: Text(label),
-        trailing: Text(
-          value,
-          style:
-              TextStyle(
-            color: color,
-            fontSize: 22,
-            fontWeight:
-                FontWeight.w800,
-          ),
         ),
       ),
     );
@@ -1523,7 +2080,9 @@ class _WorkforceHomeState extends State<WorkforceHome> {
         color:
             color.withOpacity(.12),
         borderRadius:
-            BorderRadius.circular(30),
+            BorderRadius.circular(
+          30,
+        ),
       ),
       child: Text(
         text,
@@ -1535,29 +2094,6 @@ class _WorkforceHomeState extends State<WorkforceHome> {
               FontWeight.w900,
         ),
       ),
-    );
-  }
-
-  Widget _statusChip(
-    double health,
-  ) {
-    if (health >= 70) {
-      return _chip(
-        'HEALTHY',
-        Colors.greenAccent,
-      );
-    }
-
-    if (health >= 40) {
-      return _chip(
-        'ATTENTION',
-        Colors.amberAccent,
-      );
-    }
-
-    return _chip(
-      'CRITICAL',
-      Colors.redAccent,
     );
   }
 
@@ -1574,13 +2110,17 @@ class _WorkforceHomeState extends State<WorkforceHome> {
       decoration:
           BoxDecoration(
         color:
-            Colors.redAccent.withOpacity(.10),
+            Colors.redAccent
+                .withOpacity(.10),
         borderRadius:
-            BorderRadius.circular(13),
+            BorderRadius.circular(
+          13,
+        ),
         border:
             Border.all(
           color:
-              Colors.redAccent.withOpacity(.20),
+              Colors.redAccent
+                  .withOpacity(.20),
         ),
       ),
       child: Row(
@@ -1590,7 +2130,9 @@ class _WorkforceHomeState extends State<WorkforceHome> {
             color:
                 Colors.redAccent,
           ),
-          const SizedBox(width: 8),
+          const SizedBox(
+            width: 8,
+          ),
           Expanded(
             child: Text(
               text,
@@ -1619,9 +2161,12 @@ class _WorkforceHomeState extends State<WorkforceHome> {
             const Icon(
               Icons.inbox_outlined,
               size: 34,
-              color: Colors.white38,
+              color:
+                  Colors.white38,
             ),
-            const SizedBox(height: 8),
+            const SizedBox(
+              height: 8,
+            ),
             Text(
               title,
               style:
@@ -1630,7 +2175,9 @@ class _WorkforceHomeState extends State<WorkforceHome> {
                     FontWeight.w800,
               ),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(
+              height: 4,
+            ),
             Text(
               subtitle,
               textAlign:
@@ -1643,36 +2190,6 @@ class _WorkforceHomeState extends State<WorkforceHome> {
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _detailRow(
-    String label,
-    String value,
-  ) {
-    return Padding(
-      padding:
-          const EdgeInsets.symmetric(
-        vertical: 5,
-      ),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 150,
-            child: Text(
-              label,
-              style:
-                  const TextStyle(
-                color:
-                    Colors.white54,
-              ),
-            ),
-          ),
-          Expanded(
-            child: Text(value),
-          ),
-        ],
       ),
     );
   }
