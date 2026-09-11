@@ -17,8 +17,8 @@ class MachineDetailsPage extends StatefulWidget {
 class _MachineDetailsPageState extends State<MachineDetailsPage> {
   bool loading = true;
   String? error;
-  List<Map<String, dynamic>> components = [];
-  List<Map<String, dynamic>> readings = [];
+  List<Map<String, dynamic>> components = <Map<String, dynamic>>[];
+  List<Map<String, dynamic>> readings = <Map<String, dynamic>>[];
 
   @override
   void initState() {
@@ -34,9 +34,9 @@ class _MachineDetailsPageState extends State<MachineDetailsPage> {
 
     try {
       final id = widget.machine['id'];
-      final results = await Future.wait<dynamic>([
-        widget.api.get('/api/machines/' + id.toString() + '/components'),
-        widget.api.get('/api/machines/' + id.toString() + '/readings'),
+      final results = await Future.wait<dynamic>(<Future<dynamic>>[
+        widget.api.get('/api/machines/$id/components'),
+        widget.api.get('/api/machines/$id/readings'),
       ]);
 
       if (!mounted) return;
@@ -55,27 +55,42 @@ class _MachineDetailsPageState extends State<MachineDetailsPage> {
   }
 
   List<Map<String, dynamic>> _maps(dynamic value) {
-    if (value is! List) return [];
-    return value.whereType<Map>().map((item) => Map<String, dynamic>.from(item)).toList();
+    if (value is! List) return <Map<String, dynamic>>[];
+    return value
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
   }
 
-  double _number(dynamic value) => double.tryParse(value.toString()) ?? 0;
+  double _number(dynamic value) {
+    return double.tryParse(value?.toString() ?? '') ?? 0;
+  }
 
   String _pretty(String value) {
-    return value.replaceAll('_', ' ').split(' ').map((part) {
-      if (part.isEmpty) return part;
-      return part[0].toUpperCase() + part.substring(1);
-    }).join(' ');
+    return value
+        .replaceAll('_', ' ')
+        .split(' ')
+        .map((part) {
+          if (part.isEmpty) return part;
+          return part[0].toUpperCase() + part.substring(1);
+        })
+        .join(' ');
   }
 
   IconData _sensorIcon(String type) {
     switch (type.toLowerCase()) {
-      case 'temperature': return Icons.thermostat_outlined;
-      case 'humidity': return Icons.water_drop_outlined;
-      case 'vibration': return Icons.vibration;
-      case 'current': return Icons.electric_bolt_outlined;
-      case 'load': return Icons.speed_outlined;
-      default: return Icons.sensors_outlined;
+      case 'temperature':
+        return Icons.thermostat_outlined;
+      case 'humidity':
+        return Icons.water_drop_outlined;
+      case 'vibration':
+        return Icons.vibration;
+      case 'current':
+        return Icons.electric_bolt_outlined;
+      case 'load':
+        return Icons.speed_outlined;
+      default:
+        return Icons.sensors_outlined;
     }
   }
 
@@ -89,9 +104,12 @@ class _MachineDetailsPageState extends State<MachineDetailsPage> {
   Widget build(BuildContext context) {
     final health = _number(widget.machine['health_score']);
     final healthColor = _healthColor(health);
+
     final types = <String>{
-      ...readings.map((r) => (r['reading_type'] ?? '').toString().toLowerCase()),
-    }.where((v) => v.isNotEmpty).toList();
+      for (final reading in readings)
+        if ((reading['reading_type'] ?? '').toString().isNotEmpty)
+          (reading['reading_type'] ?? '').toString().toLowerCase(),
+    }.toList();
 
     return Scaffold(
       appBar: AppBar(
@@ -99,8 +117,11 @@ class _MachineDetailsPageState extends State<MachineDetailsPage> {
           widget.machine['name']?.toString() ?? 'Machine',
           style: const TextStyle(fontWeight: FontWeight.w800),
         ),
-        actions: [
-          IconButton(onPressed: _load, icon: const Icon(Icons.refresh)),
+        actions: <Widget>[
+          IconButton(
+            onPressed: loading ? null : _load,
+            icon: const Icon(Icons.refresh),
+          ),
         ],
       ),
       body: RefreshIndicator(
@@ -108,20 +129,26 @@ class _MachineDetailsPageState extends State<MachineDetailsPage> {
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(16),
-          children: [
+          children: <Widget>[
             if (error != null)
               Container(
                 margin: const EdgeInsets.only(bottom: 12),
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.redAccent.withOpacity(.10),
+                  color: Colors.redAccent.withOpacity(0.10),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Text(error!, style: const TextStyle(color: Colors.redAccent)),
+                child: Text(
+                  error!,
+                  style: const TextStyle(color: Colors.redAccent),
+                ),
               ),
             _header(health, healthColor),
             const SizedBox(height: 20),
-            const Text('Sensor Readings', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w800)),
+            const Text(
+              'Sensor Readings',
+              style: TextStyle(fontSize: 21, fontWeight: FontWeight.w800),
+            ),
             const SizedBox(height: 10),
             if (loading)
               const Padding(
@@ -129,7 +156,15 @@ class _MachineDetailsPageState extends State<MachineDetailsPage> {
                 child: Center(child: CircularProgressIndicator()),
               )
             else if (readings.isEmpty)
-              _empty('No sensor readings', 'No readings have been recorded for this machine yet.'),
+              _empty(
+                'No sensor readings',
+                'No readings have been recorded for this machine yet.',
+              )
+            else if (types.isEmpty)
+              _empty(
+                'No sensor types',
+                'The available readings do not contain a sensor type.',
+              )
             else
               GridView.builder(
                 shrinkWrap: true,
@@ -141,24 +176,48 @@ class _MachineDetailsPageState extends State<MachineDetailsPage> {
                   mainAxisSpacing: 10,
                   childAspectRatio: 1.3,
                 ),
-                itemBuilder: (context, index) {
+                itemBuilder: (BuildContext context, int index) {
                   final type = types[index];
-                  final reading = readings.firstWhere(
-                    (item) => (item['reading_type'] ?? '').toString().toLowerCase() == type,
-                  );
+                  Map<String, dynamic>? reading;
+
+                  for (final item in readings) {
+                    if ((item['reading_type'] ?? '')
+                            .toString()
+                            .toLowerCase() ==
+                        type) {
+                      reading = item;
+                      break;
+                    }
+                  }
+
+                  final value = reading?['value']?.toString() ?? '—';
+                  final unit = reading?['unit']?.toString() ?? '';
+
                   return Card(
                     child: Padding(
                       padding: const EdgeInsets.all(14),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Icon(_sensorIcon(type), color: Colors.lightBlueAccent),
+                        children: <Widget>[
+                          Icon(
+                            _sensorIcon(type),
+                            color: Colors.lightBlueAccent,
+                          ),
                           const Spacer(),
-                          Text(_pretty(type), style: const TextStyle(color: Colors.white54, fontSize: 12)),
+                          Text(
+                            _pretty(type),
+                            style: const TextStyle(
+                              color: Colors.white54,
+                              fontSize: 12,
+                            ),
+                          ),
                           const SizedBox(height: 4),
                           Text(
-                            (reading['value'] ?? '—').toString() + (reading['unit'] ?? '').toString(),
-                            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+                            '$value$unit',
+                            style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w900,
+                            ),
                           ),
                         ],
                       ),
@@ -167,50 +226,66 @@ class _MachineDetailsPageState extends State<MachineDetailsPage> {
                 },
               ),
             const SizedBox(height: 22),
-            const Text('Components', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w800)),
+            const Text(
+              'Components',
+              style: TextStyle(fontSize: 21, fontWeight: FontWeight.w800),
+            ),
             const SizedBox(height: 10),
             if (loading)
-              const SizedBox()
+              const SizedBox.shrink()
             else if (components.isEmpty)
-              _empty('No components', 'No components have been registered for this machine.'),
+              _empty(
+                'No components',
+                'No components have been registered for this machine.',
+              )
             else
-              ...components.map(
-                (component) => Card(
+              for (final component in components)
+                Card(
                   margin: const EdgeInsets.only(bottom: 10),
                   child: ListTile(
-                    leading: const CircleAvatar(child: Icon(Icons.settings_outlined)),
+                    leading: const CircleAvatar(
+                      child: Icon(Icons.settings_outlined),
+                    ),
                     title: Text(
-                      (component['name'] ?? 'Component').toString(),
+                      component['name']?.toString() ?? 'Component',
                       style: const TextStyle(fontWeight: FontWeight.w700),
                     ),
                     subtitle: Text(
-                      (component['description'] ?? 'No description').toString(),
+                      component['description']?.toString() ?? 'No description',
                       style: const TextStyle(color: Colors.white54),
                     ),
                   ),
                 ),
-              ),
-            if (!loading && readings.isNotEmpty) ...[
+            if (!loading && readings.isNotEmpty) ...<Widget>[
               const SizedBox(height: 22),
-              const Text('Recent Readings', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w800)),
+              const Text(
+                'Recent Readings',
+                style: TextStyle(fontSize: 21, fontWeight: FontWeight.w800),
+              ),
               const SizedBox(height: 10),
-              ...readings.take(15).map(
-                (reading) => Card(
+              for (final reading in readings.take(15))
+                Card(
                   margin: const EdgeInsets.only(bottom: 8),
                   child: ListTile(
-                    leading: const Icon(Icons.sensors_outlined, color: Colors.lightBlueAccent),
-                    title: Text(_pretty((reading['reading_type'] ?? 'Reading').toString())),
+                    leading: const Icon(
+                      Icons.sensors_outlined,
+                      color: Colors.lightBlueAccent,
+                    ),
+                    title: Text(
+                      _pretty(
+                        reading['reading_type']?.toString() ?? 'Reading',
+                      ),
+                    ),
                     subtitle: Text(
-                      (reading['recorded_at'] ?? 'Unknown time').toString(),
+                      reading['recorded_at']?.toString() ?? 'Unknown time',
                       style: const TextStyle(color: Colors.white54),
                     ),
                     trailing: Text(
-                      (reading['value'] ?? '—').toString() + (reading['unit'] ?? '').toString(),
+                      '${reading['value'] ?? '—'}${reading['unit'] ?? ''}',
                       style: const TextStyle(fontWeight: FontWeight.w800),
                     ),
                   ),
                 ),
-              ),
             ],
           ],
         ),
@@ -225,22 +300,29 @@ class _MachineDetailsPageState extends State<MachineDetailsPage> {
         padding: const EdgeInsets.all(18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+          children: <Widget>[
             Row(
-              children: [
+              children: <Widget>[
                 CircleAvatar(
                   radius: 28,
-                  backgroundColor: color.withOpacity(.12),
-                  child: Icon(Icons.precision_manufacturing, color: color, size: 30),
+                  backgroundColor: color.withOpacity(0.12),
+                  child: Icon(
+                    Icons.precision_manufacturing,
+                    color: color,
+                    size: 30,
+                  ),
                 ),
                 const SizedBox(width: 14),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
+                    children: <Widget>[
                       Text(
                         widget.machine['name']?.toString() ?? 'Machine',
-                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w900,
+                        ),
                       ),
                       Text(
                         widget.machine['machine_code']?.toString() ?? '—',
@@ -250,8 +332,11 @@ class _MachineDetailsPageState extends State<MachineDetailsPage> {
                   ),
                 ),
                 Text(
-                  health.toStringAsFixed(0) + '%',
-                  style: TextStyle(color: color, fontWeight: FontWeight.w900),
+                  '${health.toStringAsFixed(0)}%',
+                  style: TextStyle(
+                    color: color,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
               ],
             ),
@@ -259,7 +344,10 @@ class _MachineDetailsPageState extends State<MachineDetailsPage> {
             _detail('Location', widget.machine['location']?.toString() ?? '—'),
             _detail('Category', widget.machine['category']?.toString() ?? '—'),
             _detail('Status', widget.machine['status']?.toString() ?? '—'),
-            _detail('Operating hours', widget.machine['operating_hours']?.toString() ?? '0'),
+            _detail(
+              'Operating hours',
+              widget.machine['operating_hours']?.toString() ?? '0',
+            ),
           ],
         ),
       ),
@@ -270,8 +358,14 @@ class _MachineDetailsPageState extends State<MachineDetailsPage> {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
-        children: [
-          SizedBox(width: 130, child: Text(label, style: const TextStyle(color: Colors.white54))),
+        children: <Widget>[
+          SizedBox(
+            width: 130,
+            child: Text(
+              label,
+              style: const TextStyle(color: Colors.white54),
+            ),
+          ),
           Expanded(child: Text(value)),
         ],
       ),
@@ -283,12 +377,23 @@ class _MachineDetailsPageState extends State<MachineDetailsPage> {
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
-          children: [
-            const Icon(Icons.inbox_outlined, size: 34, color: Colors.white38),
+          children: <Widget>[
+            const Icon(
+              Icons.inbox_outlined,
+              size: 34,
+              color: Colors.white38,
+            ),
             const SizedBox(height: 8),
-            Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
+            Text(
+              title,
+              style: const TextStyle(fontWeight: FontWeight.w800),
+            ),
             const SizedBox(height: 4),
-            Text(subtitle, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white54)),
+            Text(
+              subtitle,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white54),
+            ),
           ],
         ),
       ),
