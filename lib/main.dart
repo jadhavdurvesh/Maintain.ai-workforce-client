@@ -43,7 +43,8 @@ class ApiClient {
   Map<String, String> get headers {
     return {
       'Content-Type': 'application/json',
-      if (token != null) 'Authorization': 'Bearer $token',
+      if (token != null)
+        'Authorization': 'Bearer $token',
     };
   }
 
@@ -183,12 +184,10 @@ class _WorkforceAppState
 
       setState(() {
         authenticated = true;
-
         worker =
             Map<String, dynamic>.from(
           response,
         );
-
         initialized = true;
       });
     } catch (_) {
@@ -317,9 +316,9 @@ class _WorkerLoginPageState
 
     if (username.isEmpty) {
       setState(() {
-        error = 'Enter your username.';
+        error =
+            'Enter your username.';
       });
-
       return;
     }
 
@@ -494,14 +493,6 @@ class _WorkerLoginPageState
                             loading
                                 ? null
                                 : login,
-                        style:
-                            FilledButton.styleFrom(
-                          padding:
-                              const EdgeInsets
-                                  .symmetric(
-                            vertical: 15,
-                          ),
-                        ),
                         child: loading
                             ? const SizedBox(
                                 width: 20,
@@ -514,12 +505,6 @@ class _WorkerLoginPageState
                               )
                             : const Text(
                                 'Continue',
-                                style:
-                                    TextStyle(
-                                  fontWeight:
-                                      FontWeight
-                                          .w700,
-                                ),
                               ),
                       ),
                       const SizedBox(
@@ -583,6 +568,9 @@ class _WorkforceHomeState
   List<Map<String, dynamic>>
       orders = [];
 
+  List<Map<String, dynamic>>
+      faults = [];
+
   @override
   void initState() {
     super.initState();
@@ -607,9 +595,7 @@ class _WorkforceHomeState
   Future<void> refresh({
     bool silent = false,
   }) async {
-    if (syncing) {
-      return;
-    }
+    if (syncing) return;
 
     syncing = true;
 
@@ -630,6 +616,9 @@ class _WorkforceHomeState
           widget.api.get(
             '/api/work-orders',
           ),
+          widget.api.get(
+            '/api/faults',
+          ),
         ],
       );
 
@@ -638,20 +627,21 @@ class _WorkforceHomeState
       setState(() {
         machines =
             _maps(results[0]);
-
         orders =
             _maps(results[1]);
+        faults =
+            _maps(results[2]);
 
         loading = false;
         message = null;
       });
     } on ApiException catch (e) {
-      if (!mounted) return;
-
       if (e.statusCode == 401) {
         await widget.onLogout();
         return;
       }
+
+      if (!mounted) return;
 
       setState(() {
         loading = false;
@@ -739,7 +729,6 @@ class _WorkforceHomeState
         'No assigned machines are available.',
         error: true,
       );
-
       return;
     }
 
@@ -768,8 +757,7 @@ class _WorkforceHomeState
             setSheetState,
           ) {
             return Padding(
-              padding:
-                  EdgeInsets.fromLTRB(
+              padding: EdgeInsets.fromLTRB(
                 20,
                 8,
                 20,
@@ -838,9 +826,8 @@ class _WorkforceHomeState
                           );
                         },
                       ).toList(),
-                      onChanged: (
-                        value,
-                      ) {
+                      onChanged:
+                          (value) {
                         if (value !=
                             null) {
                           setSheetState(
@@ -880,8 +867,7 @@ class _WorkforceHomeState
                           ),
                         ),
                         DropdownMenuItem(
-                          value:
-                              'high',
+                          value: 'high',
                           child:
                               Text(
                             'High',
@@ -896,9 +882,8 @@ class _WorkforceHomeState
                           ),
                         ),
                       ],
-                      onChanged: (
-                        value,
-                      ) {
+                      onChanged:
+                          (value) {
                         if (value !=
                             null) {
                           setSheetState(
@@ -968,7 +953,6 @@ class _WorkforceHomeState
                                 ),
                               ),
                             );
-
                             return;
                           }
 
@@ -1055,9 +1039,7 @@ class _WorkforceHomeState
       },
     );
 
-    descriptionController
-        .dispose();
-
+    descriptionController.dispose();
     symptomsController.dispose();
 
     if (result == true &&
@@ -1095,9 +1077,10 @@ class _WorkforceHomeState
   @override
   Widget build(BuildContext context) {
     final pages = <Widget>[
-      _dashboard(),
+      _dashboardPage(),
       _machinesPage(),
       _ordersPage(),
+      _faultsPage(),
       _profilePage(),
     ];
 
@@ -1116,8 +1099,10 @@ class _WorkforceHomeState
           name?.isNotEmpty == true
               ? name!
               : username,
-          style: const TextStyle(
-            fontWeight: FontWeight.w800,
+          style:
+              const TextStyle(
+            fontWeight:
+                FontWeight.w800,
           ),
         ),
         actions: [
@@ -1137,8 +1122,7 @@ class _WorkforceHomeState
           IconButton(
             onPressed: () =>
                 refresh(),
-            tooltip:
-                'Refresh',
+            tooltip: 'Refresh',
             icon:
                 const Icon(
               Icons.refresh,
@@ -1146,10 +1130,7 @@ class _WorkforceHomeState
           ),
         ],
       ),
-
-      body:
-          pages[tab],
-
+      body: pages[tab],
       floatingActionButton:
           tab == 0 || tab == 1
               ? FloatingActionButton.extended(
@@ -1166,7 +1147,6 @@ class _WorkforceHomeState
                   ),
                 )
               : null,
-
       bottomNavigationBar:
           NavigationBar(
         selectedIndex: tab,
@@ -1202,8 +1182,7 @@ class _WorkforceHomeState
           ),
           NavigationDestination(
             icon: Icon(
-              Icons
-                  .assignment_outlined,
+              Icons.assignment_outlined,
             ),
             selectedIcon:
                 Icon(Icons.assignment),
@@ -1211,8 +1190,16 @@ class _WorkforceHomeState
           ),
           NavigationDestination(
             icon: Icon(
-              Icons.person_outline,
+              Icons
+                  .report_problem_outlined,
             ),
+            selectedIcon:
+                Icon(Icons.report_problem),
+            label: 'Faults',
+          ),
+          NavigationDestination(
+            icon:
+                Icon(Icons.person_outline),
             selectedIcon:
                 Icon(Icons.person),
             label: 'Profile',
@@ -1222,7 +1209,7 @@ class _WorkforceHomeState
     );
   }
 
-  Widget _dashboard() {
+  Widget _dashboardPage() {
     final averageHealth = machines.isEmpty
         ? 0.0
         : machines
@@ -1243,6 +1230,14 @@ class _WorkforceHomeState
               '${order['status']}'
                   .toLowerCase() !=
               'completed',
+        )
+        .length;
+
+    final openFaults = faults
+        .where(
+          (fault) =>
+              fault['resolved_date'] ==
+              null,
         )
         .length;
 
@@ -1304,13 +1299,26 @@ class _WorkforceHomeState
               Expanded(
                 child:
                     _metricCard(
-                  'Critical',
-                  '$critical',
+                  'Faults',
+                  '$openFaults',
                   Icons
-                      .warning_amber,
+                      .report_problem,
                 ),
               ),
             ],
+          ),
+
+          const SizedBox(
+            height: 10,
+          ),
+
+          _wideMetric(
+            'Critical machines',
+            '$critical',
+            Icons.warning_amber_rounded,
+            critical > 0
+                ? Colors.redAccent
+                : Colors.greenAccent,
           ),
 
           const SizedBox(
@@ -1319,7 +1327,8 @@ class _WorkforceHomeState
 
           const Text(
             'Assigned Machines',
-            style: TextStyle(
+            style:
+                TextStyle(
               fontSize: 20,
               fontWeight:
                   FontWeight.w800,
@@ -1338,9 +1347,7 @@ class _WorkforceHomeState
           else
             ...machines
                 .take(5)
-                .map(
-                  _machineTile,
-                ),
+                .map(_machineTile),
 
           const SizedBox(
             height: 18,
@@ -1360,11 +1367,12 @@ class _WorkforceHomeState
                 ),
               ),
               TextButton(
-                onPressed: () {
-                  setState(() {
+                onPressed: () =>
+                    setState(
+                  () {
                     tab = 2;
-                  });
-                },
+                  },
+                ),
                 child:
                     const Text(
                   'View all',
@@ -1381,9 +1389,7 @@ class _WorkforceHomeState
           else
             ...orders
                 .take(3)
-                .map(
-                  _orderPreview,
-                ),
+                .map(_orderPreview),
         ],
       ),
     );
@@ -1727,8 +1733,7 @@ class _WorkforceHomeState
                       .toUpperCase(),
                   status == 'completed'
                       ? Colors.greenAccent
-                      : Colors
-                          .lightBlueAccent,
+                      : Colors.lightBlueAccent,
                 ),
                 const Spacer(),
                 if (status ==
@@ -1774,8 +1779,7 @@ class _WorkforceHomeState
     );
   }
 
-  Future<void>
-      _resolveOrder(
+  Future<void> _resolveOrder(
     Map<String, dynamic> order,
   ) async {
     final controller =
@@ -1841,6 +1845,149 @@ class _WorkforceHomeState
       order,
       'completed',
       notes: notes,
+    );
+  }
+
+  Widget _faultsPage() {
+    return RefreshIndicator(
+      onRefresh: refresh,
+      child: ListView(
+        physics:
+            const AlwaysScrollableScrollPhysics(),
+        padding:
+            const EdgeInsets.all(16),
+        children: [
+          const Text(
+            'Reported Faults',
+            style:
+                TextStyle(
+              fontSize: 27,
+              fontWeight:
+                  FontWeight.w900,
+            ),
+          ),
+          const SizedBox(
+            height: 6,
+          ),
+          const Text(
+            'Faults and anomalies reported from your assigned machines.',
+            style:
+                TextStyle(
+              color:
+                  Colors.white54,
+            ),
+          ),
+          const SizedBox(
+            height: 16,
+          ),
+          if (faults.isEmpty)
+            _empty(
+              'No reported faults',
+              'Faults you report will appear here.',
+            )
+          else
+            ...faults.map(
+              _faultCard,
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _faultCard(
+    Map<String, dynamic> fault,
+  ) {
+    final resolved =
+        fault['resolved_date'] !=
+            null;
+
+    final severity =
+        '${fault['severity'] ?? 'warning'}'
+            .toLowerCase();
+
+    final color =
+        severity == 'critical'
+            ? Colors.redAccent
+            : severity == 'high'
+                ? Colors.orangeAccent
+                : severity == 'warning'
+                    ? Colors.amberAccent
+                    : Colors.lightBlueAccent;
+
+    return Card(
+      margin:
+          const EdgeInsets.only(
+        bottom: 12,
+      ),
+      child: Padding(
+        padding:
+            const EdgeInsets.all(15),
+        child: Column(
+          crossAxisAlignment:
+              CrossAxisAlignment
+                  .start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '${fault['description'] ?? 'Fault'}',
+                    style:
+                        const TextStyle(
+                      fontSize: 16,
+                      fontWeight:
+                          FontWeight.w700,
+                    ),
+                  ),
+                ),
+                _chip(
+                  severity.toUpperCase(),
+                  color,
+                ),
+              ],
+            ),
+            const SizedBox(
+              height: 8,
+            ),
+            if ('${fault['symptoms'] ?? ''}'
+                .trim()
+                .isNotEmpty)
+              Text(
+                '${fault['symptoms']}',
+                style:
+                    const TextStyle(
+                  color:
+                      Colors.white70,
+                ),
+              ),
+            const SizedBox(
+              height: 10,
+            ),
+            Row(
+              children: [
+                _chip(
+                  resolved
+                      ? 'RESOLVED'
+                      : 'OPEN',
+                  resolved
+                      ? Colors.greenAccent
+                      : Colors.amberAccent,
+                ),
+                const Spacer(),
+                Text(
+                  'Fault #${fault['id'] ?? '—'}',
+                  style:
+                      const TextStyle(
+                    color:
+                        Colors.white38,
+                    fontSize: 11,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -1978,6 +2125,28 @@ class _WorkforceHomeState
             ),
           ),
         ),
+        Card(
+          child: ListTile(
+            leading:
+                const Icon(
+              Icons.report_problem_outlined,
+            ),
+            title:
+                const Text(
+              'Reported Faults',
+            ),
+            trailing:
+                Text(
+              '${faults.length}',
+              style:
+                  const TextStyle(
+                fontSize: 20,
+                fontWeight:
+                    FontWeight.w800,
+              ),
+            ),
+          ),
+        ),
         const SizedBox(
           height: 12,
         ),
@@ -2035,6 +2204,36 @@ class _WorkforceHomeState
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _wideMetric(
+    String label,
+    String value,
+    IconData icon,
+    Color color,
+  ) {
+    return Card(
+      child: ListTile(
+        leading:
+            Icon(
+          icon,
+          color: color,
+        ),
+        title:
+            Text(label),
+        trailing:
+            Text(
+          value,
+          style:
+              TextStyle(
+            color: color,
+            fontSize: 22,
+            fontWeight:
+                FontWeight.w800,
+          ),
         ),
       ),
     );
