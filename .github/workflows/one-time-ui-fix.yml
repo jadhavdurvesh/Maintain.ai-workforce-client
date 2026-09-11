@@ -8,25 +8,34 @@ permissions:
   contents: write
 
 jobs:
-  fix-ui:
-    if: github.actor != 'github-actions[bot]'
+  patch:
+    if: github.event.head_commit.message == 'Run one-time UI patch'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Patch main.dart
+        uses: actions/github-script@v7
         with:
-          fetch-depth: 0
-      - name: Patch UI
-        shell: python
-        run: |
-          from pathlib import Path
-          p = Path('lib/main.dart')
-          s = p.read_text()
-          old_import = "import 'package:shared_preferences/shared_preferences.dart';\n"
-          assert old_import in s
-          assert "import 'machine_details_page.dart';" not in s
-          s = s.replace(old_import, old_import + "import 'machine_details_page.dart';\n", 1)
+          script: |
+            const path = 'lib/main.dart';
+            const { data } = await github.rest.repos.getContent({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              path,
+              ref: 'main'
+            });
+            const content = Buffer.from(data.content, 'base64').toString('utf8');
 
-          old_tile = '''  Widget _machineTile(Map<String, dynamic> machine) {
+            if (content.includes("import 'machine_details_page.dart';")) {
+              core.setFailed('Machine details import already exists; refusing to modify twice.');
+              return;
+            }
+
+            let updated = content.replace(
+              "import 'package:shared_preferences/shared_preferences.dart';\n",
+              "import 'package:shared_preferences/shared_preferences.dart';\nimport 'machine_details_page.dart';\n"
+            );
+
+            const oldTile = `  Widget _machineTile(Map<String, dynamic> machine) {
     final health = _number(machine['health_score']);
 
     final color = health >= 70
@@ -46,16 +55,16 @@ jobs:
           ),
         ),
         title: Text(
-          '${machine['name'] ?? 'Machine'}',
+          '\${machine['name'] ?? 'Machine'}',
           style: const TextStyle(fontWeight: FontWeight.w700),
         ),
         subtitle: Text(
-          '${machine['machine_code'] ?? '—'} • '
-          '${machine['location'] ?? '—'}',
+          '\${machine['machine_code'] ?? '—'} • '
+          '\${machine['location'] ?? '—'}',
           style: const TextStyle(color: Colors.white54),
         ),
         trailing: Text(
-          '${health.toStringAsFixed(0)}%',
+          '\${health.toStringAsFixed(0)}%',
           style: TextStyle(
             color: color,
             fontWeight: FontWeight.w900,
@@ -64,8 +73,9 @@ jobs:
       ),
     );
   }
-'''
-          new_tile = '''  Widget _machineTile(Map<String, dynamic> machine) {
+`;
+
+            const newTile = `  Widget _machineTile(Map<String, dynamic> machine) {
     final health = _number(machine['health_score']);
 
     final color = health >= 70
@@ -92,18 +102,18 @@ jobs:
           child: Icon(Icons.precision_manufacturing, color: color),
         ),
         title: Text(
-          '${machine['name'] ?? 'Machine'}',
+          '\${machine['name'] ?? 'Machine'}',
           style: const TextStyle(fontWeight: FontWeight.w700),
         ),
         subtitle: Text(
-          '${machine['machine_code'] ?? '—'} • ${machine['location'] ?? '—'}',
+          '\${machine['machine_code'] ?? '—'} • '\n          '\${machine['location'] ?? '—'}',
           style: const TextStyle(color: Colors.white54),
         ),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              '${health.toStringAsFixed(0)}%',
+              '\${health.toStringAsFixed(0)}%',
               style: TextStyle(color: color, fontWeight: FontWeight.w900),
             ),
             const SizedBox(width: 6),
@@ -113,11 +123,15 @@ jobs:
       ),
     );
   }
-'''
-          assert old_tile in s
-          s = s.replace(old_tile, new_tile, 1)
+`;
 
-          old_nav = '''      bottomNavigationBar: NavigationBar(
+            if (!updated.includes(oldTile)) {
+              core.setFailed('Expected machine tile was not found.');
+              return;
+            }
+            updated = updated.replace(oldTile, newTile);
+
+            const oldNav = `      bottomNavigationBar: NavigationBar(
         selectedIndex: tab,
         onDestinationSelected: (index) {
           setState(() {
@@ -152,8 +166,9 @@ jobs:
           ),
         ],
       ),
-'''
-          new_nav = '''      bottomNavigationBar: SafeArea(
+`;
+
+            const newNav = `      bottomNavigationBar: SafeArea(
         minimum: const EdgeInsets.fromLTRB(12, 0, 12, 12),
         child: Container(
           height: 68,
@@ -181,12 +196,16 @@ jobs:
           ),
         ),
       ),
-'''
-          assert old_nav in s
-          s = s.replace(old_nav, new_nav, 1)
+`;
 
-          marker = '  Widget _dashboardPage() {'
-          nav_method = '''  Widget _navItem(int index, IconData icon, IconData selectedIcon, String label) {
+            if (!updated.includes(oldNav)) {
+              core.setFailed('Expected navbar was not found.');
+              return;
+            }
+            updated = updated.replace(oldNav, newNav);
+
+            const marker = '  Widget _dashboardPage() {';
+            const navMethod = `  Widget _navItem(int index, IconData icon, IconData selectedIcon, String label) {
     final selected = tab == index;
     return Expanded(
       child: InkWell(
@@ -212,16 +231,29 @@ jobs:
     );
   }
 
-'''
-          assert marker in s
-          s = s.replace(marker, nav_method + marker, 1)
-          p.write_text(s)
+`;
 
-      - name: Commit and remove temporary workflow
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add lib/main.dart
-          git rm .github/workflows/one-time-ui-fix.yml
-          git commit -m "Add machine details navigation and refresh navbar"
-          git push origin HEAD:main
+            if (!updated.includes(marker)) {
+              core.setFailed('Dashboard marker was not found.');
+              return;
+            }
+            updated = updated.replace(marker, navMethod + marker);
+
+            await github.rest.repos.createOrUpdateFileContents({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              path,
+              message: 'Add machine details navigation and refresh navbar',
+              content: Buffer.from(updated, 'utf8').toString('base64'),
+              sha: data.sha,
+              branch: 'main'
+            });
+
+            await github.rest.repos.deleteFile({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              path: '.github/workflows/one-time-ui-fix.yml',
+              message: 'Remove one-time UI fix workflow',
+              sha: '22c4546aafb782cdec2dfae84b6fbb961dbc6e36',
+              branch: 'main'
+            });
