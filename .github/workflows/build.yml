@@ -5,8 +5,24 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.5'
+          channel: stable
+      - run: flutter pub get
+      - run: flutter create --platforms=android,ios .
+      - run: flutter analyze
+
   android:
+    needs: analyze
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,6 +39,7 @@ jobs:
           path: build/app/outputs/flutter-apk/app-release.apk
 
   ios:
+    needs: analyze
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
