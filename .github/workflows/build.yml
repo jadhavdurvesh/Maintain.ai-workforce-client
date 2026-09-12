@@ -76,6 +76,76 @@ jobs:
             --platforms=android \
             .
 
+      - name: Configure branded Android splash screen
+        shell: bash
+        run: |
+          mkdir -p android/app/src/main/res/drawable
+          mkdir -p android/app/src/main/res/values
+          mkdir -p android/app/src/main/res/values-v31
+
+          cat > android/app/src/main/res/drawable/maintain_splash_logo.xml <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp"
+              android:height="108dp"
+              android:viewportWidth="108"
+              android:viewportHeight="108">
+              <path
+                  android:fillColor="#69C7FF"
+                  android:pathData="M27,76 L27,32 L38,32 L54,52 L70,32 L81,32 L81,76 L69,76 L69,52 L54,71 L39,52 L39,76 Z" />
+          </vector>
+          XML
+
+          cat > android/app/src/main/res/drawable/launch_background.xml <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+              <item android:drawable="@color/maintain_splash_background" />
+              <item>
+                  <bitmap
+                      android:gravity="center"
+                      android:src="@drawable/maintain_splash_logo" />
+              </item>
+          </layer-list>
+          XML
+
+          cat > android/app/src/main/res/values/maintain_splash_colors.xml <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <color name="maintain_splash_background">#0B1220</color>
+          </resources>
+          XML
+
+          cat > android/app/src/main/res/values/styles.xml <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
+                  <item name="android:windowBackground">@drawable/launch_background</item>
+                  <item name="android:forceDarkAllowed">false</item>
+              </style>
+
+              <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
+                  <item name="android:windowBackground">@android:color/black</item>
+              </style>
+          </resources>
+          XML
+
+          cat > android/app/src/main/res/values-v31/styles.xml <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
+                  <item name="android:forceDarkAllowed">false</item>
+                  <item name="android:windowSplashScreenBackground">@color/maintain_splash_background</item>
+                  <item name="android:windowSplashScreenAnimatedIcon">@drawable/maintain_splash_logo</item>
+              </style>
+
+              <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
+                  <item name="android:windowBackground">@android:color/black</item>
+              </style>
+          </resources>
+          XML
+
+          echo "Branded Android splash screen configured."
+
       - name: Ensure Android INTERNET permission
         shell: bash
         run: |
