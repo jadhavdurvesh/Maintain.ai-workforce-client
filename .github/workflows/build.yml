@@ -146,6 +146,88 @@ jobs:
 
           echo "Branded Android splash screen configured."
 
+      - name: Configure persistent Android release signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.MAINTAIN_ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.MAINTAIN_ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.MAINTAIN_ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.MAINTAIN_ANDROID_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for required in KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            if [ -z "${!required}" ]; then
+              echo "Missing GitHub Actions secret for Android signing: $required"
+              exit 1
+            fi
+          done
+
+          echo "$KEYSTORE_BASE64" | base64 --decode > android/app/maintain-ai-release.jks
+
+          cat > android/key.properties <<EOF
+          storePassword=$KEYSTORE_PASSWORD
+          keyPassword=$KEY_PASSWORD
+          keyAlias=$KEY_ALIAS
+          storeFile=maintain-ai-release.jks
+          EOF
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("android/app/build.gradle")
+          content = path.read_text()
+
+          if "maintain-ai-release.jks" not in content:
+              signing_block = '''
+
+          def keystorePropertiesFile = rootProject.file("key.properties")
+          def keystoreProperties = new Properties()
+          if (keystorePropertiesFile.exists()) {
+              keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+          }
+
+          android {
+              signingConfigs {
+                  release {
+                      keyAlias keystoreProperties['keyAlias']
+                      keyPassword keystoreProperties['keyPassword']
+                      storeFile keystoreProperties['storeFile'] ? file(keystoreProperties['storeFile']) : null
+                      storePassword keystoreProperties['storePassword']
+                  }
+              }
+          }
+          '''
+
+              marker = "android {"
+              if marker not in content:
+                  raise SystemExit("Could not find android block in android/app/build.gradle")
+
+              content = content.replace(marker, signing_block + "\n" + marker, 1)
+
+          if "signingConfig signingConfigs.release" not in content:
+              release_marker = "buildTypes {"
+              if release_marker not in content:
+                  raise SystemExit("Could not find buildTypes block in android/app/build.gradle")
+
+              content = content.replace(
+                  release_marker,
+                  "buildTypes {\n        release {\n            signingConfig signingConfigs.release\n        }",
+                  1,
+              )
+
+              # Remove the generated duplicate release opening/closing structure
+              content = content.replace(
+                  "release {\n            signingConfig signingConfigs.release\n        }\n        release {",
+                  "release {\n            signingConfig signingConfigs.release\n        }\n        release {",
+                  1,
+              )
+
+          path.write_text(content)
+          PY
+
+          echo "Persistent Android release signing configured."
+
       - name: Ensure Android INTERNET permission
         shell: bash
         run: |
