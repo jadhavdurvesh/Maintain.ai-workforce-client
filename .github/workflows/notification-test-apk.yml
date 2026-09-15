@@ -45,6 +45,28 @@ jobs:
               a = a.replace('plugins {', "plugins {\n    id 'com.google.gms.google-services'", 1)
               app.write_text(a)
           PY
+      - name: Configure Android SDK requirements
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('android/app/build.gradle')
+          content = path.read_text()
+
+          content = re.sub(r'compileSdk\s*=\s*[^\n]+', 'compileSdk = 35', content, count=1)
+          content = re.sub(r'minSdk(?:Version)?\s*=\s*[^\n]+', 'minSdk = 23', content, count=1)
+
+          if 'compileSdk = 35' not in content:
+              raise SystemExit('Could not configure compileSdk = 35')
+          if 'minSdk = 23' not in content:
+              raise SystemExit('Could not configure minSdk = 23')
+
+          path.write_text(content)
+          print('Configured compileSdk=35 and minSdk=23')
+          PY
       - name: Build debug APK
         run: flutter build apk --debug
       - uses: actions/upload-artifact@v4
