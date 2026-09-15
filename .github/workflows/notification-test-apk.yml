@@ -1,0 +1,53 @@
+name: Build Firebase Notification Test APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FLUTTER_VERSION: "3.24.5"
+  PROJECT_NAME: "maintain_ai_workforce_client"
+
+jobs:
+  android-test:
+    name: Build Firebase Notification Test APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Install dependencies
+        run: flutter pub get
+      - name: Generate Android project
+        run: flutter create --project-name ${{ env.PROJECT_NAME }} --platforms=android .
+      - name: Inject Firebase configuration
+        env:
+          FIREBASE_ANDROID_CONFIG_BASE64: ${{ secrets.FIREBASE_ANDROID_CONFIG_BASE64 }}
+        run: |
+          set -euo pipefail
+          test -n "$FIREBASE_ANDROID_CONFIG_BASE64"
+          echo "$FIREBASE_ANDROID_CONFIG_BASE64" | base64 --decode > android/app/google-services.json
+          python3 - <<'PY'
+          from pathlib import Path
+          settings = Path('android/settings.gradle')
+          s = settings.read_text()
+          if 'com.google.gms.google-services' not in s:
+              s = s.replace('plugins {', "plugins {\n        id 'com.google.gms.google-services' version '4.4.4' apply false", 1)
+              settings.write_text(s)
+          app = Path('android/app/build.gradle')
+          a = app.read_text()
+          if 'com.google.gms.google-services' not in a:
+              a = a.replace('plugins {', "plugins {\n    id 'com.google.gms.google-services'", 1)
+              app.write_text(a)
+          PY
+      - name: Build debug APK
+        run: flutter build apk --debug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: maintain-ai-workforce-notification-test-apk
+          path: build/app/outputs/flutter-apk/app-debug.apk
