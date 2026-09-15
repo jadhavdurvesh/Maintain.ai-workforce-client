@@ -1,0 +1,33 @@
+name: Apply Workforce Notification Integration
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Apply notification integration
+        run: python3 tool/enable_notifications.py
+
+      - name: Commit generated integration
+        shell: bash
+        run: |
+          if git diff --quiet -- lib/main.dart; then
+            echo "Notification integration is already applied."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/main.dart
+          git commit -m "Integrate workforce push notifications"
+          git push
