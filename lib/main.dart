@@ -4,11 +4,16 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'notification_service.dart';
 import 'machine_details_page.dart';
 
 const String apiBaseUrl = 'https://maintain-ai-3.vercel.app';
 
-void main() => runApp(const WorkforceApp());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await NotificationService.initialize();
+  runApp(const WorkforceApp());
+}
 
 class ApiClient {
   String? token;
@@ -111,6 +116,7 @@ class _WorkforceAppState extends State<WorkforceApp> {
         worker = Map<String, dynamic>.from(response);
         initialized = true;
       });
+      await NotificationService.initialize();
     } catch (_) {
       await api.clearToken();
       if (!mounted) return;
@@ -129,9 +135,11 @@ class _WorkforceAppState extends State<WorkforceApp> {
       authenticated = true;
       worker = user;
     });
+    await NotificationService.initialize();
   }
 
   Future<void> logout() async {
+    await NotificationService.unregister();
     await api.clearToken();
     if (!mounted) return;
     setState(() {
@@ -453,6 +461,11 @@ class _WorkforceHomeState extends State<WorkforceHome> {
         title: Text(name?.isNotEmpty == true ? name! : username, style: const TextStyle(fontWeight: FontWeight.w800)),
         actions: [
           if (loading) const Padding(padding: EdgeInsets.all(15), child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))),
+          IconButton(
+            onPressed: () => NotificationService.openCenter(context),
+            tooltip: 'Notifications',
+            icon: const Icon(Icons.notifications_outlined),
+          ),
           IconButton(onPressed: refresh, tooltip: 'Refresh', icon: const Icon(Icons.refresh)),
         ],
       ),
