@@ -390,11 +390,34 @@ class _WorkforceHomeState extends State<WorkforceHome> {
                 const Text('Report anything unusual you observe on an assigned machine.', style: TextStyle(color: Colors.white54)),
                 const SizedBox(height: 18),
                 DropdownButtonFormField<int>(
-                  value: selectedMachine,
-                  decoration: const InputDecoration(labelText: 'Machine', prefixIcon: Icon(Icons.precision_manufacturing)),
-                  items: machines.map((machine) => DropdownMenuItem<int>(value: machine['id'] as int, child: Text('${machine['name']} (${machine['machine_code']})'))).toList(),
-                  onChanged: (value) { if (value != null) setSheetState(() => selectedMachine = value); },
-                ),
+        value: selectedMachine,
+        isExpanded: true,
+        decoration: const InputDecoration(
+          labelText: 'Machine',
+          prefixIcon: Icon(Icons.precision_manufacturing),
+        ),
+        selectedItemBuilder: (context) => machines
+            .map((machine) => Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    '${machine['name']} (${machine['machine_code']})',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ))
+            .toList(),
+        items: machines
+            .map((machine) => DropdownMenuItem<int>(
+                  value: machine['id'] as int,
+                  child: Text(
+                    '${machine['name']} (${machine['machine_code']})',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ))
+            .toList(),
+        onChanged: (value) { if (value != null) setSheetState(() => selectedMachine = value); },
+      ),
                 const SizedBox(height: 14),
                 DropdownButtonFormField<String>(
                   value: severity,
