@@ -76,6 +76,80 @@ jobs:
             --platforms=android \
             .
 
+      - name: Configure Firebase Android
+        env:
+          FIREBASE_ANDROID_CONFIG_BASE64: ${{ secrets.FIREBASE_ANDROID_CONFIG_BASE64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -z "$FIREBASE_ANDROID_CONFIG_BASE64" ]; then
+            echo "Missing GitHub Actions secret: FIREBASE_ANDROID_CONFIG_BASE64"
+            exit 1
+          fi
+
+          echo "$FIREBASE_ANDROID_CONFIG_BASE64" | base64 --decode > android/app/google-services.json
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          settings = Path("android/settings.gradle")
+          settings_kts = Path("android/settings.gradle.kts")
+          app_gradle = Path("android/app/build.gradle")
+          app_gradle_kts = Path("android/app/build.gradle.kts")
+
+          if settings.exists():
+              path = settings
+              content = path.read_text()
+              plugin_line = '        id "com.google.gms.google-services" version "4.4.4" apply false\n'
+              if 'com.google.gms.google-services' not in content:
+                  marker = 'plugins {'
+                  if marker not in content:
+                      raise SystemExit("Could not find plugins block in android/settings.gradle")
+                  content = content.replace(marker, marker + '\n' + plugin_line, 1)
+              path.write_text(content)
+          elif settings_kts.exists():
+              path = settings_kts
+              content = path.read_text()
+              plugin_line = '        id("com.google.gms.google-services") version "4.4.4" apply false\n'
+              if 'com.google.gms.google-services' not in content:
+                  marker = 'plugins {'
+                  if marker not in content:
+                      raise SystemExit("Could not find plugins block in android/settings.gradle.kts")
+                  content = content.replace(marker, marker + '\n' + plugin_line, 1)
+              path.write_text(content)
+          else:
+              raise SystemExit("No Android settings.gradle or settings.gradle.kts found")
+
+          if app_gradle.exists():
+              path = app_gradle
+              content = path.read_text()
+              plugin_line = '    id "com.google.gms.google-services"\n'
+              if 'com.google.gms.google-services' not in content:
+                  marker = 'plugins {'
+                  if marker not in content:
+                      raise SystemExit("Could not find plugins block in android/app/build.gradle")
+                  content = content.replace(marker, marker + '\n' + plugin_line, 1)
+              path.write_text(content)
+          elif app_gradle_kts.exists():
+              path = app_gradle_kts
+              content = path.read_text()
+              plugin_line = '    id("com.google.gms.google-services")\n'
+              if 'com.google.gms.google-services' not in content:
+                  marker = 'plugins {'
+                  if marker not in content:
+                      raise SystemExit("Could not find plugins block in android/app/build.gradle.kts")
+                  content = content.replace(marker, marker + '\n' + plugin_line, 1)
+              path.write_text(content)
+          else:
+              raise SystemExit("No Android app Gradle build file found")
+
+          print("Firebase Android configuration injected successfully.")
+          PY
+
+          test -s android/app/google-services.json
+          echo "google-services.json created for CI build."
+
       - name: Configure branded Android splash screen
         shell: bash
         run: |
@@ -216,13 +290,6 @@ jobs:
                   1,
               )
 
-              # Remove the generated duplicate release opening/closing structure
-              content = content.replace(
-                  "release {\n            signingConfig signingConfigs.release\n        }\n        release {",
-                  "release {\n            signingConfig signingConfigs.release\n        }\n        release {",
-                  1,
-              )
-
           path.write_text(content)
           PY
 
@@ -253,8 +320,7 @@ jobs:
 
               if marker not in content:
                   raise SystemExit(
-                      "Could not find <application> "
-                      "in AndroidManifest.xml"
+                      "Could not find <application> in AndroidManifest.xml"
                   )
 
               content = content.replace(
@@ -266,10 +332,6 @@ jobs:
               path.write_text(content)
 
           print("Android INTERNET permission verified.")
-
-          print("--- AndroidManifest.xml ---")
-          print(path.read_text())
-          print("--- End manifest ---")
           PY
 
       - name: Build release APK
