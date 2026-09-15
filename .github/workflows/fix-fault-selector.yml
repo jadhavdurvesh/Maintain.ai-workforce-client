@@ -17,14 +17,10 @@ jobs:
         run: |
           python3 - <<'PY2'
           from pathlib import Path
+          import re
           path = Path("lib/main.dart")
           text = path.read_text()
-          old = """                DropdownButtonFormField<int>(
-                  value: selectedMachine,
-                  decoration: const InputDecoration(labelText: 'Machine', prefixIcon: Icon(Icons.precision_manufacturing)),
-                  items: machines.map((machine) => DropdownMenuItem<int>(value: machine['id'] as int, child: Text('${machine['name']} (${machine['machine_code']})'))).toList(),
-                  onChanged: (value) { if (value != null) setSheetState(() => selectedMachine = value); },
-                ),"""
+          pattern = r"                DropdownButtonFormField<int>\(\n                  value: selectedMachine,\n                  decoration: const InputDecoration\(labelText: 'Machine', prefixIcon: Icon\(Icons\.precision_manufacturing\)\),\n                  items: machines\.map\(\(machine\) => DropdownMenuItem<int>\(value: machine\['id'\] as int, child: Text\('\$\{machine\['name'\]\} \(\$\{machine\['machine_code'\]\}\)'\)\)\)\.toList\(\),\n                  onChanged: \(value\) \{ if \(value != null\) setSheetState\(\(\) => selectedMachine = value\); \},\n                \),"
           new = """                DropdownButtonFormField<int>(
                   value: selectedMachine,
                   isExpanded: true,
@@ -54,9 +50,10 @@ jobs:
                       .toList(),
                   onChanged: (value) { if (value != null) setSheetState(() => selectedMachine = value); },
                 ),"""
-          if old not in text:
-              raise SystemExit("machine selector block not found or already patched")
-          path.write_text(text.replace(old, new, 1))
+          patched, count = re.subn(pattern, new, text, count=1)
+          if count != 1:
+              raise SystemExit("machine selector block not found")
+          path.write_text(patched)
           PY2
       - name: Commit UI fix
         run: |
