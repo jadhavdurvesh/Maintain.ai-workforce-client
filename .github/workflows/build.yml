@@ -17,79 +17,61 @@ env:
 jobs:
   analyze:
     name: Analyze Flutter App
-
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
-
       - name: Install dependencies
         run: flutter pub get
-
       - name: Generate platform projects
         run: |
           flutter create \
             --project-name ${{ env.PROJECT_NAME }} \
             --platforms=android,ios \
             .
-
       - name: Remove generated example test
-        run: |
-          rm -f test/widget_test.dart
-
+        run: rm -f test/widget_test.dart
       - name: Analyze
         run: flutter analyze --no-fatal-infos
 
   android:
     name: Build Android APK
-
     needs: analyze
-
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
-
       - name: Install dependencies
         run: flutter pub get
-
       - name: Generate Android project
         run: |
           flutter create \
             --project-name ${{ env.PROJECT_NAME }} \
             --platforms=android \
             .
-
       - name: Configure Firebase Android
         env:
           FIREBASE_ANDROID_CONFIG_BASE64: ${{ secrets.FIREBASE_ANDROID_CONFIG_BASE64 }}
         shell: bash
         run: |
           set -euo pipefail
-
           if [ -z "$FIREBASE_ANDROID_CONFIG_BASE64" ]; then
             echo "Missing GitHub Actions secret: FIREBASE_ANDROID_CONFIG_BASE64"
             exit 1
           fi
-
           echo "$FIREBASE_ANDROID_CONFIG_BASE64" | base64 --decode > android/app/google-services.json
-
           python3 - <<'PY'
           from pathlib import Path
 
@@ -104,8 +86,6 @@ jobs:
               plugin_line = '        id "com.google.gms.google-services" version "4.4.4" apply false\n'
               if 'com.google.gms.google-services' not in content:
                   marker = 'plugins {'
-                  if marker not in content:
-                      raise SystemExit("Could not find plugins block in android/settings.gradle")
                   content = content.replace(marker, marker + '\n' + plugin_line, 1)
               path.write_text(content)
           elif settings_kts.exists():
@@ -114,112 +94,83 @@ jobs:
               plugin_line = '        id("com.google.gms.google-services") version "4.4.4" apply false\n'
               if 'com.google.gms.google-services' not in content:
                   marker = 'plugins {'
-                  if marker not in content:
-                      raise SystemExit("Could not find plugins block in android/settings.gradle.kts")
                   content = content.replace(marker, marker + '\n' + plugin_line, 1)
               path.write_text(content)
           else:
-              raise SystemExit("No Android settings.gradle or settings.gradle.kts found")
+              raise SystemExit("No Android settings file found")
 
           if app_gradle.exists():
               path = app_gradle
               content = path.read_text()
               plugin_line = '    id "com.google.gms.google-services"\n'
               if 'com.google.gms.google-services' not in content:
-                  marker = 'plugins {'
-                  if marker not in content:
-                      raise SystemExit("Could not find plugins block in android/app/build.gradle")
-                  content = content.replace(marker, marker + '\n' + plugin_line, 1)
-              path.write_text(content)
+                  content = content.replace('plugins {', 'plugins {\n' + plugin_line, 1)
           elif app_gradle_kts.exists():
               path = app_gradle_kts
               content = path.read_text()
               plugin_line = '    id("com.google.gms.google-services")\n'
               if 'com.google.gms.google-services' not in content:
-                  marker = 'plugins {'
-                  if marker not in content:
-                      raise SystemExit("Could not find plugins block in android/app/build.gradle.kts")
-                  content = content.replace(marker, marker + '\n' + plugin_line, 1)
-              path.write_text(content)
+                  content = content.replace('plugins {', 'plugins {\n' + plugin_line, 1)
           else:
-              raise SystemExit("No Android app Gradle build file found")
-
-          print("Firebase Android configuration injected successfully.")
+              raise SystemExit("No Android app Gradle file found")
+          path.write_text(content)
           PY
-
           test -s android/app/google-services.json
-          echo "google-services.json created for CI build."
+      - name: Configure Android SDK requirements
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
 
+          path = Path('android/app/build.gradle')
+          if not path.exists():
+              raise SystemExit('android/app/build.gradle not found')
+          content = path.read_text()
+          content = re.sub(r'compileSdk\s*=\s*[^\n]+', 'compileSdk = 35', content, count=1)
+          content = re.sub(r'minSdk(?:Version)?\s*=\s*[^\n]+', 'minSdk = 23', content, count=1)
+          if 'compileSdk = 35' not in content:
+              raise SystemExit('Could not configure compileSdk = 35')
+          if 'minSdk = 23' not in content:
+              raise SystemExit('Could not configure minSdk = 23')
+          path.write_text(content)
+          PY
       - name: Configure branded Android splash screen
         shell: bash
         run: |
-          mkdir -p android/app/src/main/res/drawable
-          mkdir -p android/app/src/main/res/values
-          mkdir -p android/app/src/main/res/values-v31
-
+          mkdir -p android/app/src/main/res/drawable android/app/src/main/res/values android/app/src/main/res/values-v31
           cat > android/app/src/main/res/drawable/maintain_splash_logo.xml <<'XML'
           <?xml version="1.0" encoding="utf-8"?>
-          <vector xmlns:android="http://schemas.android.com/apk/res/android"
-              android:width="108dp"
-              android:height="108dp"
-              android:viewportWidth="108"
-              android:viewportHeight="108">
-              <path
-                  android:fillColor="#69C7FF"
-                  android:pathData="M27,76 L27,32 L38,32 L54,52 L70,32 L81,32 L81,76 L69,76 L69,52 L54,71 L39,52 L39,76 Z" />
+          <vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+              <path android:fillColor="#69C7FF" android:pathData="M27,76 L27,32 L38,32 L54,52 L70,32 L81,32 L81,76 L69,76 L69,52 L54,71 L39,52 L39,76 Z" />
           </vector>
           XML
-
           cat > android/app/src/main/res/drawable/launch_background.xml <<'XML'
           <?xml version="1.0" encoding="utf-8"?>
           <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
               <item android:drawable="@color/maintain_splash_background" />
-              <item>
-                  <bitmap
-                      android:gravity="center"
-                      android:src="@drawable/maintain_splash_logo" />
-              </item>
+              <item><bitmap android:gravity="center" android:src="@drawable/maintain_splash_logo" /></item>
           </layer-list>
           XML
-
           cat > android/app/src/main/res/values/maintain_splash_colors.xml <<'XML'
           <?xml version="1.0" encoding="utf-8"?>
-          <resources>
-              <color name="maintain_splash_background">#0B1220</color>
-          </resources>
+          <resources><color name="maintain_splash_background">#0B1220</color></resources>
           XML
-
           cat > android/app/src/main/res/values/styles.xml <<'XML'
           <?xml version="1.0" encoding="utf-8"?>
           <resources>
-              <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
-                  <item name="android:windowBackground">@drawable/launch_background</item>
-                  <item name="android:forceDarkAllowed">false</item>
-              </style>
-
-              <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
-                  <item name="android:windowBackground">@android:color/black</item>
-              </style>
+              <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar"><item name="android:windowBackground">@drawable/launch_background</item><item name="android:forceDarkAllowed">false</item></style>
+              <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar"><item name="android:windowBackground">@android:color/black</item></style>
           </resources>
           XML
-
           cat > android/app/src/main/res/values-v31/styles.xml <<'XML'
           <?xml version="1.0" encoding="utf-8"?>
           <resources>
-              <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
-                  <item name="android:forceDarkAllowed">false</item>
-                  <item name="android:windowSplashScreenBackground">@color/maintain_splash_background</item>
-                  <item name="android:windowSplashScreenAnimatedIcon">@drawable/maintain_splash_logo</item>
-              </style>
-
-              <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
-                  <item name="android:windowBackground">@android:color/black</item>
-              </style>
+              <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar"><item name="android:forceDarkAllowed">false</item><item name="android:windowSplashScreenBackground">@color/maintain_splash_background</item><item name="android:windowSplashScreenAnimatedIcon">@drawable/maintain_splash_logo</item></style>
+              <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar"><item name="android:windowBackground">@android:color/black</item></style>
           </resources>
           XML
-
-          echo "Branded Android splash screen configured."
-
       - name: Configure persistent Android release signing
         env:
           KEYSTORE_BASE64: ${{ secrets.MAINTAIN_ANDROID_KEYSTORE_BASE64 }}
@@ -229,38 +180,27 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           for required in KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
-            if [ -z "${!required}" ]; then
-              echo "Missing GitHub Actions secret for Android signing: $required"
-              exit 1
-            fi
+            if [ -z "${!required}" ]; then echo "Missing GitHub Actions secret for Android signing: $required"; exit 1; fi
           done
-
           echo "$KEYSTORE_BASE64" | base64 --decode > android/app/maintain-ai-release.jks
-
           cat > android/key.properties <<EOF
           storePassword=$KEYSTORE_PASSWORD
           keyPassword=$KEY_PASSWORD
           keyAlias=$KEY_ALIAS
           storeFile=maintain-ai-release.jks
           EOF
-
           python3 - <<'PY'
           from pathlib import Path
-
           path = Path("android/app/build.gradle")
           content = path.read_text()
-
           if "maintain-ai-release.jks" not in content:
               signing_block = '''
-
           def keystorePropertiesFile = rootProject.file("key.properties")
           def keystoreProperties = new Properties()
           if (keystorePropertiesFile.exists()) {
               keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
           }
-
           android {
               signingConfigs {
                   release {
@@ -272,71 +212,25 @@ jobs:
               }
           }
           '''
-
-              marker = "android {"
-              if marker not in content:
-                  raise SystemExit("Could not find android block in android/app/build.gradle")
-
-              content = content.replace(marker, signing_block + "\n" + marker, 1)
-
+              content = content.replace("android {", signing_block + "\nandroid {", 1)
           if "signingConfig signingConfigs.release" not in content:
-              release_marker = "buildTypes {"
-              if release_marker not in content:
-                  raise SystemExit("Could not find buildTypes block in android/app/build.gradle")
-
-              content = content.replace(
-                  release_marker,
-                  "buildTypes {\n        release {\n            signingConfig signingConfigs.release\n        }",
-                  1,
-              )
-
+              content = content.replace("buildTypes {", "buildTypes {\n        release {\n            signingConfig signingConfigs.release\n        }", 1)
           path.write_text(content)
           PY
-
-          echo "Persistent Android release signing configured."
-
       - name: Ensure Android INTERNET permission
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
-
           path = Path("android/app/src/main/AndroidManifest.xml")
-
-          if not path.exists():
-              raise SystemExit(
-                  f"AndroidManifest.xml not found: {path}"
-              )
-
           content = path.read_text()
-
-          permission = (
-              '<uses-permission '
-              'android:name="android.permission.INTERNET" />'
-          )
-
+          permission = '<uses-permission android:name="android.permission.INTERNET" />'
           if permission not in content:
-              marker = '<application'
-
-              if marker not in content:
-                  raise SystemExit(
-                      "Could not find <application> in AndroidManifest.xml"
-                  )
-
-              content = content.replace(
-                  marker,
-                  f'    {permission}\n\n    {marker}',
-                  1,
-              )
-
+              content = content.replace('<application', f'    {permission}\n\n    <application', 1)
               path.write_text(content)
-
-          print("Android INTERNET permission verified.")
           PY
-
       - name: Build release APK
         run: flutter build apk --release
-
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
@@ -345,43 +239,31 @@ jobs:
 
   ios:
     name: Build iOS
-
     needs: analyze
-
     runs-on: macos-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
-
       - name: Install dependencies
         run: flutter pub get
-
       - name: Generate iOS project
         run: |
           flutter create \
             --project-name ${{ env.PROJECT_NAME }} \
             --platforms=ios \
             .
-
       - name: Build unsigned iOS app
         run: flutter build ios --release --no-codesign
-
       - name: Package iOS app
         run: |
           mkdir -p artifacts
-
-          cp -R \
-            build/ios/iphoneos/Runner.app \
-            artifacts/WorkforceClient.app
-
+          cp -R build/ios/iphoneos/Runner.app artifacts/WorkforceClient.app
       - name: Upload iOS artifact
         uses: actions/upload-artifact@v4
         with:
