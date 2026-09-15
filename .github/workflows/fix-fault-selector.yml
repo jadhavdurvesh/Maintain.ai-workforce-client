@@ -1,0 +1,67 @@
+name: Apply fault selector UI fix
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch machine selector
+        run: |
+          python3 - <<'PY2'
+          from pathlib import Path
+          path = Path("lib/main.dart")
+          text = path.read_text()
+          old = """                DropdownButtonFormField<int>(
+                  value: selectedMachine,
+                  decoration: const InputDecoration(labelText: 'Machine', prefixIcon: Icon(Icons.precision_manufacturing)),
+                  items: machines.map((machine) => DropdownMenuItem<int>(value: machine['id'] as int, child: Text('${machine['name']} (${machine['machine_code']})'))).toList(),
+                  onChanged: (value) { if (value != null) setSheetState(() => selectedMachine = value); },
+                ),"""
+          new = """                DropdownButtonFormField<int>(
+                  value: selectedMachine,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Machine',
+                    prefixIcon: Icon(Icons.precision_manufacturing),
+                  ),
+                  selectedItemBuilder: (context) => machines
+                      .map((machine) => Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              '${machine['name']} (${machine['machine_code']})',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ))
+                      .toList(),
+                  items: machines
+                      .map((machine) => DropdownMenuItem<int>(
+                            value: machine['id'] as int,
+                            child: Text(
+                              '${machine['name']} (${machine['machine_code']})',
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ))
+                      .toList(),
+                  onChanged: (value) { if (value != null) setSheetState(() => selectedMachine = value); },
+                ),"""
+          if old not in text:
+              raise SystemExit("machine selector block not found or already patched")
+          path.write_text(text.replace(old, new, 1))
+          PY2
+      - name: Commit UI fix
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add lib/main.dart
+          git commit -m 'Fix fault report machine selector overflow'
+          git push
