@@ -52,6 +52,7 @@ class ApiClient {
 
   Map<String, String> get headers => {
         'Content-Type': 'application/json',
+        'X-Maintain-Application': 'workforce',
         if (token != null) 'Authorization': 'Bearer $token',
       };
 
