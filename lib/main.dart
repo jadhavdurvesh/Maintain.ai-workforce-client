@@ -7,7 +7,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'notification_service.dart';
 import 'machine_details_page.dart';
 
-const String apiBaseUrl = 'https://maintain-ai-3.vercel.app';
+const String apiBaseUrl = String.fromEnvironment('MAINTAIN_API_URL', defaultValue: 'https://maintain-ai-3.vercel.app');
+const String supabaseUrl = String.fromEnvironment('SUPABASE_URL', defaultValue: '');
+const String supabasePublishableKey = String.fromEnvironment('SUPABASE_PUBLISHABLE_KEY', defaultValue: '');
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -22,6 +24,19 @@ class ApiClient {
     final prefs = await SharedPreferences.getInstance();
     token = prefs.getString('worker_access_token');
   }
+
+  Future<Map<String, dynamic>> supabaseLogin(String email, String password) async {
+    final response = await http.post(Uri.parse('$supabaseUrl/auth/v1/token?grant_type=password'), headers: {'apikey': supabasePublishableKey, 'Content-Type': 'application/json'}, body: jsonEncode({'email': email, 'password': password})).timeout(const Duration(seconds: 12));
+    final data = _decode(response);
+    if (response.statusCode < 200 || response.statusCode >= 300) throw ApiException((data is Map ? (data['error_description'] ?? data['msg']) : null)?.toString() ?? 'Sign in failed', response.statusCode);
+    final token = data['access_token']?.toString();
+    if (token == null) throw ApiException('No access token returned.', response.statusCode);
+    await saveToken(token);
+    final synced = await post('/api/auth/supabase/sync', body: {});
+    return Map<String, dynamic>.from(synced);
+  }
+
+  dynamic _decode(http.Response response) { try { return jsonDecode(response.body); } catch (_) { return response.body; } }
 
   Future<void> saveToken(String value) async {
     token = value;
@@ -183,19 +198,25 @@ class WorkerLoginPage extends StatefulWidget {
 
 class _WorkerLoginPageState extends State<WorkerLoginPage> {
   final usernameController = TextEditingController();
+  final passwordController = TextEditingController();
+  final emailController = TextEditingController();
   bool loading = false;
   String? error;
 
   @override
   void dispose() {
     usernameController.dispose();
+    passwordController.dispose();
+    emailController.dispose();
     super.dispose();
   }
 
   Future<void> login() async {
+    final email = emailController.text.trim();
+    final password = passwordController.text;
     final username = usernameController.text.trim();
-    if (username.isEmpty) {
-      setState(() => error = 'Enter your username.');
+    if (supabaseUrl.isNotEmpty && supabasePublishableKey.isNotEmpty && (email.isEmpty || password.isEmpty)) { setState(() => error = 'Enter your email and password.'); return; }
+    if (supabaseUrl.isEmpty && username.isEmpty) { setState(() => error = 'Enter your username.');
       return;
     }
     setState(() {
@@ -203,7 +224,7 @@ class _WorkerLoginPageState extends State<WorkerLoginPage> {
       error = null;
     });
     try {
-      final response = await widget.api.post('/api/auth/worker-login', body: {'username': username});
+      final response = supabaseUrl.isNotEmpty && supabasePublishableKey.isNotEmpty ? await widget.api.supabaseLogin(email, password) : await widget.api.post('/api/auth/worker-login', body: {'username': username});
       await widget.onLogin(response['access_token'].toString(), Map<String, dynamic>.from(response));
     } catch (e) {
       if (mounted) setState(() => error = e.toString());
@@ -238,7 +259,11 @@ class _WorkerLoginPageState extends State<WorkerLoginPage> {
                       const SizedBox(height: 6),
                       const Text('Worker Client', textAlign: TextAlign.center, style: TextStyle(color: Colors.white54)),
                       const SizedBox(height: 28),
-                      TextField(
+                      if (supabaseUrl.isNotEmpty && supabasePublishableKey.isNotEmpty) ...[
+                        TextField(controller: emailController, keyboardType: TextInputType.emailAddress, textInputAction: TextInputAction.next, decoration: const InputDecoration(labelText: 'Work email', hintText: 'technician@company.com', prefixIcon: Icon(Icons.email_outlined))),
+                        const SizedBox(height: 12),
+                        TextField(controller: passwordController, obscureText: true, textInputAction: TextInputAction.done, onSubmitted: (_) => login(), decoration: const InputDecoration(labelText: 'Password', prefixIcon: Icon(Icons.lock_outline))),
+                      ] else TextField(
                         controller: usernameController,
                         textInputAction: TextInputAction.done,
                         onSubmitted: (_) => login(),
@@ -256,7 +281,7 @@ class _WorkerLoginPageState extends State<WorkerLoginPage> {
                             : const Text('Continue'),
                       ),
                       const SizedBox(height: 14),
-                      const Text('Use the username created by your company administrator.', textAlign: TextAlign.center, style: TextStyle(color: Colors.white38, fontSize: 12)),
+                      const Text('Sign in with the account invited by your company administrator.', textAlign: TextAlign.center, style: TextStyle(color: Colors.white38, fontSize: 12)),
                     ],
                   ),
                 ),
