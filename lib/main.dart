@@ -32,8 +32,9 @@ class ApiClient {
     final token = data['access_token']?.toString();
     if (token == null) throw ApiException('No access token returned.', response.statusCode);
     await saveToken(token);
-    final synced = await post('/api/auth/supabase/sync', body: {});
-    return Map<String, dynamic>.from(synced);
+    await post('/api/auth/supabase/sync', body: {});
+    final me = await get('/api/auth/me');
+    return Map<String, dynamic>.from(me);
   }
 
   dynamic _decode(http.Response response) { try { return jsonDecode(response.body); } catch (_) { return response.body; } }
@@ -127,6 +128,7 @@ class _WorkforceAppState extends State<WorkforceApp> {
     try {
       final response = await api.get('/api/auth/me');
       if (!mounted) return;
+      final response = await api.get('/api/auth/me');
       setState(() {
         authenticated = true;
         worker = Map<String, dynamic>.from(response);
@@ -225,7 +227,10 @@ class _WorkerLoginPageState extends State<WorkerLoginPage> {
       error = null;
     });
     try {
-      final response = supabaseUrl.isNotEmpty && supabasePublishableKey.isNotEmpty ? await widget.api.supabaseLogin(email, password) : await widget.api.post('/api/auth/worker-login', body: {'username': username});
+      if (supabaseUrl.isEmpty || supabasePublishableKey.isEmpty) {
+        throw ApiException('Workforce authentication requires Supabase configuration.', 503);
+      }
+      final response = await widget.api.supabaseLogin(email, password);
       await widget.onLogin(response['access_token'].toString(), Map<String, dynamic>.from(response));
     } catch (e) {
       if (mounted) setState(() => error = e.toString());
