@@ -156,6 +156,7 @@ class _WorkforceAppState extends State<WorkforceApp> {
       worker = user;
     });
     await NotificationService.initialize();
+    await realtime.start();
   }
 
   Future<void> logout() async {
@@ -188,7 +189,7 @@ class _WorkforceAppState extends State<WorkforceApp> {
         cardTheme: const CardTheme(color: Color(0xFF111D2E), elevation: 0, margin: EdgeInsets.zero),
       ),
       home: authenticated
-          ? WorkforceHome(api: api, worker: worker!, onLogout: logout)
+          ? WorkforceHome(api: api, worker: worker!, onLogout: logout, realtime: realtime)
           : WorkerLoginPage(api: api, onLogin: login),
     );
   }
@@ -307,7 +308,8 @@ class WorkforceHome extends StatefulWidget {
   final ApiClient api;
   final Map<String, dynamic> worker;
   final Future<void> Function() onLogout;
-  const WorkforceHome({super.key, required this.api, required this.worker, required this.onLogout});
+  final WorkforceRealtime realtime;
+  const WorkforceHome({super.key, required this.api, required this.worker, required this.onLogout, required this.realtime});
   @override
   State<WorkforceHome> createState() => _WorkforceHomeState();
 }
