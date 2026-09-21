@@ -42,7 +42,7 @@ The client requests a backend-issued realtime token from:
 
 `POST /api/auth/realtime-token`
 
-It then joins the organization telemetry channel. The backend/Supabase authorization layer must enforce technician machine scope; filtering events in Flutter is only a UX optimization.
+It loads the backend-authorized machine list and joins only machine-scoped telemetry channels (`machine:<id>:telemetry`). Supabase RLS also validates the machine IDs carried in the backend-issued Realtime JWT; Flutter filtering is only a UX optimization.
 
 ## Configuration
 
