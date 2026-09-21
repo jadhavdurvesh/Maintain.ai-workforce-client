@@ -1,13 +1,17 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
+import 'realtime_service.dart';
 
 class MachineDetailsPage extends StatefulWidget {
   final dynamic api;
   final Map<String, dynamic> machine;
+  final Stream<LiveTelemetry>? telemetryStream;
 
   const MachineDetailsPage({
     super.key,
     required this.api,
     required this.machine,
+    this.telemetryStream,
   });
 
   @override
@@ -19,11 +23,23 @@ class _MachineDetailsPageState extends State<MachineDetailsPage> {
   String? error;
   List<Map<String, dynamic>> components = <Map<String, dynamic>>[];
   List<Map<String, dynamic>> readings = <Map<String, dynamic>>[];
+  StreamSubscription<LiveTelemetry>? telemetrySubscription;
 
   @override
   void initState() {
     super.initState();
     _load();
+    telemetrySubscription = widget.telemetryStream?.listen((reading) {
+      final machineId = int.tryParse(widget.machine['id'].toString());
+      if (!mounted || machineId == null || reading.machineId != machineId) return;
+      setState(() {
+        final next = readings.map((item) => Map<String, dynamic>.from(item)).toList();
+        final index = next.indexWhere((item) => item['reading_type']?.toString().toLowerCase() == reading.readingType.toLowerCase());
+        final value = <String, dynamic>{'id': 0, 'machine_id': reading.machineId, 'reading_type': reading.readingType, 'value': reading.value, 'unit': reading.unit, 'source': 'live', 'recorded_at': reading.recordedAt};
+        if (index >= 0) next[index] = value; else next.insert(0, value);
+        readings = next;
+      });
+    });
   }
 
   Future<void> _load() async {
@@ -98,6 +114,12 @@ class _MachineDetailsPageState extends State<MachineDetailsPage> {
     if (health >= 70) return Colors.greenAccent;
     if (health >= 40) return Colors.amberAccent;
     return Colors.redAccent;
+  }
+
+  @override
+  void dispose() {
+    telemetrySubscription?.cancel();
+    super.dispose();
   }
 
   @override
