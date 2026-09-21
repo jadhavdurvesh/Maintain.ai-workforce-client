@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
+import 'app_config.dart';
 
 class LiveTelemetry {
   final int machineId;
@@ -44,7 +45,7 @@ class WorkforceRealtime {
       if (token == null || token.isEmpty) return;
       final headers = <String, String>{
         'Authorization': 'Bearer ' + token,
-        'X-Maintain-Application': 'workforce',
+        'X-Maintain-Application': maintainApplication,
         'Content-Type': 'application/json',
       };
       final response = await http.post(Uri.parse(apiBaseUrl + '/api/auth/realtime-token'), headers: headers, body: '{}').timeout(const Duration(seconds: 10));
