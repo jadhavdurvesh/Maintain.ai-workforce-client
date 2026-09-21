@@ -6,8 +6,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'app_config.dart';
 
-const String _notificationApiBaseUrl = 'https://maintain-ai-3.vercel.app';
+const String _notificationApiBaseUrl = maintainApiUrl;
 const String _deviceTokenKey = 'maintain_ai_fcm_token';
 
 final FlutterLocalNotificationsPlugin _localNotifications = FlutterLocalNotificationsPlugin();
@@ -88,6 +89,7 @@ class NotificationService {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $accessToken',
+          'X-Maintain-Application': maintainApplication,
         },
         body: jsonEncode({'device_token': token, 'platform': 'android'}),
       ).timeout(const Duration(seconds: 10));
@@ -105,7 +107,7 @@ class NotificationService {
       try {
         await http.delete(
           Uri.parse('$_notificationApiBaseUrl/api/notifications/device?device_token=${Uri.encodeQueryComponent(token)}'),
-          headers: {'Authorization': 'Bearer $accessToken'},
+          headers: {'Authorization': 'Bearer $accessToken', 'X-Maintain-Application': maintainApplication},
         ).timeout(const Duration(seconds: 8));
       } catch (_) {}
     }
