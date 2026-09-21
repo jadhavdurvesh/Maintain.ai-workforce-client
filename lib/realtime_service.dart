@@ -54,25 +54,81 @@ class WorkforceRealtime {
       final realtimeToken = data['access_token']?.toString();
       if (realtimeToken == null || realtimeToken.isEmpty) throw Exception('Realtime token missing');
 
-      final meResponse = await http.get(Uri.parse(apiBaseUrl + '/api/auth/me'), headers: headers).timeout(const Duration(seconds: 10));
-      if (meResponse.statusCode < 200 || meResponse.statusCode >= 300) throw Exception('Unable to resolve organization');
-      final me = jsonDecode(meResponse.body) as Map<String, dynamic>;
-      final org = me['organization_id'];
-      if (org == null) throw Exception('Organization missing');
+      final machinesResponse = await http.get(Uri.parse(apiBaseUrl + '/api/machines'), headers: headers).timeout(const Duration(seconds: 10));
+      if (machinesResponse.statusCode < 200 || machinesResponse.statusCode >= 300) throw Exception('Unable to resolve assigned machines');
+      final decodedMachines = jsonDecode(machinesResponse.body);
+      final machineIds = decodedMachines is List
+          ? decodedMachines
+              .whereType<Map>()
+              .map((machine) => int.tryParse(machine['id'].toString()))
+              .whereType<int>()
+              .where((id) => id > 0)
+              .toList()
+          : <int>[];
 
-      final base = supabaseUrl.replaceFirst(RegExp(r'^http'), 'ws').replaceFirst(RegExp(r'/$'), '');
+      final base = supabaseUrl.replaceFirst(RegExp(r'^http'), 'ws').replaceFirst(RegExp(r'/
+
+      channel.stream.listen(_handleMessage, onError: (_) => _scheduleReconnect(), onDone: _scheduleReconnect, cancelOnError: true);
+      Timer.periodic(const Duration(seconds: 30), (timer) {
+        if (_stopped || _channel != channel) { timer.cancel(); return; }
+        try {
+          channel.sink.add(jsonEncode(<dynamic>[DateTime.now().millisecondsSinceEpoch.toString(), '2', 'phoenix', 'heartbeat', <String, dynamic>{}]));
+        } catch (_) { timer.cancel(); }
+      });
+    } catch (_) {
+      _scheduleReconnect();
+    }
+  }
+
+  void _handleMessage(dynamic raw) {
+    try {
+      final msg = jsonDecode(raw.toString());
+      if (msg is! Map || msg['event'] != 'broadcast') return;
+      final outer = msg['payload'];
+      final payload = outer is Map && outer['payload'] is Map
+          ? Map<String, dynamic>.from(outer['payload'] as Map)
+          : outer is Map ? Map<String, dynamic>.from(outer) : null;
+      if (payload == null || payload['type'] != 'telemetry') return;
+      final value = double.tryParse(payload['value'].toString());
+      final machineId = int.tryParse(payload['machine_id'].toString());
+      if (value == null || machineId == null) return;
+      _controller.add(LiveTelemetry(
+        machineId: machineId,
+        machineName: payload['machine']?.toString() ?? 'Machine',
+        readingType: payload['reading_type']?.toString() ?? 'sensor',
+        value: value,
+        unit: payload['unit']?.toString() ?? '',
+        recordedAt: payload['recorded_at']?.toString(),
+      ));
+    } catch (_) {}
+  }
+
+  void _scheduleReconnect() {
+    if (_stopped || _reconnectTimer != null) return;
+    final seconds = math.min(30, 1 << math.min(_attempt, 5));
+    _attempt++;
+    _reconnectTimer = Timer(Duration(seconds: seconds), () { _reconnectTimer = null; _connect(); });
+  }
+
+  Future<void> dispose() async { await stop(); await _controller.close(); }
+}
+), '');
       final wsUri = Uri.parse(base + '/realtime/v1/websocket?apikey=' + Uri.encodeQueryComponent(supabasePublishableKey) + '&vsn=1.0.0');
       final channel = WebSocketChannel.connect(wsUri);
       _channel = channel;
       _attempt = 0;
-      final topic = 'realtime:org:' + org.toString() + ':telemetry';
-      channel.sink.add(jsonEncode(<dynamic>[
-        '1', '1', topic, 'phx_join',
-        <String, dynamic>{
-          'config': <String, dynamic>{'broadcast': <String, dynamic>{'self': false}, 'private': true},
-          'access_token': realtimeToken,
-        },
-      ]));
+      for (var index = 0; index < machineIds.length; index++) {
+        final machineId = machineIds[index];
+        final ref = (index + 1).toString();
+        final topic = 'realtime:machine:' + machineId.toString() + ':telemetry';
+        channel.sink.add(jsonEncode(<dynamic>[
+          ref, ref, topic, 'phx_join',
+          <String, dynamic>{
+            'config': <String, dynamic>{'broadcast': <String, dynamic>{'self': false}, 'private': true},
+            'access_token': realtimeToken,
+          },
+        ]));
+      }
 
       channel.stream.listen(_handleMessage, onError: (_) => _scheduleReconnect(), onDone: _scheduleReconnect, cancelOnError: true);
       Timer.periodic(const Duration(seconds: 30), (timer) {
