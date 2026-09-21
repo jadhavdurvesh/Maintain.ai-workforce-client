@@ -323,17 +323,24 @@ class _WorkforceHomeState extends State<WorkforceHome> {
   List<Map<String, dynamic>> machines = [];
   List<Map<String, dynamic>> orders = [];
   List<Map<String, dynamic>> faults = [];
+  final Map<int, LiveTelemetry> liveTelemetry = <int, LiveTelemetry>{};
+  StreamSubscription<LiveTelemetry>? telemetrySubscription;
 
   @override
   void initState() {
     super.initState();
     refresh();
+    telemetrySubscription = widget.realtime.telemetry.listen((reading) {
+      if (!mounted) return;
+      setState(() => liveTelemetry[reading.machineId] = reading);
+    });
     refreshTimer = Timer.periodic(const Duration(seconds: 10), (_) => refresh(silent: true));
   }
 
   @override
   void dispose() {
     refreshTimer?.cancel();
+    telemetrySubscription?.cancel();
     super.dispose();
   }
 
@@ -657,10 +664,12 @@ class _WorkforceHomeState extends State<WorkforceHome> {
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
       child: ListTile(
-        onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => MachineDetailsPage(api: widget.api, machine: machine))),
+        onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => MachineDetailsPage(api: widget.api, machine: machine, telemetryStream: widget.realtime.telemetry))),
         leading: CircleAvatar(backgroundColor: color.withOpacity(.12), child: Icon(Icons.precision_manufacturing, color: color)),
         title: Text('${machine['name'] ?? 'Machine'}', style: const TextStyle(fontWeight: FontWeight.w700)),
         subtitle: Text('${machine['machine_code'] ?? '—'} • ${machine['location'] ?? '—'}', style: const TextStyle(color: Colors.white54)),
+        isThreeLine: liveTelemetry[machine['id']] != null,
+        secondary: liveTelemetry[machine['id']] == null ? null : Text('LIVE • ' + liveTelemetry[machine['id']]!.readingType + ': ' + liveTelemetry[machine['id']]!.value.toString() + liveTelemetry[machine['id']]!.unit, style: const TextStyle(color: Colors.lightBlueAccent, fontSize: 12)),
         trailing: Row(mainAxisSize: MainAxisSize.min, children: [
           Text('${health.toStringAsFixed(0)}%', style: TextStyle(color: color, fontWeight: FontWeight.w900)),
           const SizedBox(width: 6),
