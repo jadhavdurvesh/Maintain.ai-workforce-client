@@ -147,7 +147,7 @@ class NotificationService {
     try {
       final response = await http.get(
         Uri.parse('$_notificationApiBaseUrl/api/notifications?limit=100'),
-        headers: {'Authorization': 'Bearer $token'},
+        headers: {'Authorization': 'Bearer $token', 'X-Maintain-Application': maintainApplication},
       ).timeout(const Duration(seconds: 10));
       if (response.statusCode < 200 || response.statusCode >= 300) return;
       final decoded = jsonDecode(response.body);
