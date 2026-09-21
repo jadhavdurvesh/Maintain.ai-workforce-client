@@ -7,10 +7,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'realtime_service.dart';
 import 'notification_service.dart';
 import 'machine_details_page.dart';
+import 'app_config.dart';
 
-const String apiBaseUrl = String.fromEnvironment('MAINTAIN_API_URL', defaultValue: 'https://maintain-ai-3.vercel.app');
-const String supabaseUrl = String.fromEnvironment('SUPABASE_URL', defaultValue: '');
-const String supabasePublishableKey = String.fromEnvironment('SUPABASE_PUBLISHABLE_KEY', defaultValue: '');
+const String apiBaseUrl = maintainApiUrl;
+const String supabaseUrl = maintainSupabaseUrl;
+const String supabasePublishableKey = maintainSupabasePublishableKey;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
