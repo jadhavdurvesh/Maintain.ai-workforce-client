@@ -4,7 +4,7 @@ Cross-platform Flutter worker/technician client for the industrial maintenance p
 
 ## Current version
 
-Authentication is intentionally **not implemented yet**. This client is functional without login and is designed to connect to the shared FastAPI backend.
+Authentication is implemented through Supabase Auth and the shared Maintain.ai FastAPI backend. The backend is authoritative for organization, role, and assigned-machine authorization.
 
 ### Worker features
 - Dashboard with assigned-machine health overview
@@ -21,7 +21,7 @@ Authentication is intentionally **not implemented yet**. This client is function
 - Android and iOS builds through GitHub Actions
 
 ### Current API integration
-Default backend: `https://maintain-ai-3.vercel.app`
+Default backend is configurable with `MAINTAIN_API_URL`.
 
 Endpoints currently used:
 - `GET /api/machines`
@@ -29,10 +29,9 @@ Endpoints currently used:
 - `GET /api/alerts`
 - `PATCH /api/work-orders/{id}`
 
-The app currently displays the backend's available data because authentication and worker-specific machine authorization have not yet been added to the main backend.
+The app displays only data authorized by the shared Maintain.ai backend. Technician machine assignment is enforced server-side.
 
-### Deferred until backend authentication is ready
-- Worker login/session
+### Backend-authoritative security
 - Organization/company isolation
 - Role-based permissions
 - Machine assignment enforcement
