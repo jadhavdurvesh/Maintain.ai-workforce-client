@@ -21,10 +21,31 @@ Future<void> main() async {
 
 class ApiClient {
   String? token;
+  String? refreshToken;
 
   Future<void> restoreToken() async {
     final prefs = await SharedPreferences.getInstance();
     token = prefs.getString('worker_access_token');
+    refreshToken = prefs.getString('worker_refresh_token');
+  }
+
+  Future<bool> refreshSession() async {
+    if (refreshToken == null || refreshToken!.isEmpty) return false;
+    try {
+      final response = await http.post(
+        Uri.parse('$supabaseUrl/auth/v1/token?grant_type=refresh_token'),
+        headers: {'apikey': supabasePublishableKey, 'Content-Type': 'application/json'},
+        body: jsonEncode({'refresh_token': refreshToken}),
+      ).timeout(const Duration(seconds: 12));
+      final data = _decode(response);
+      if (response.statusCode < 200 || response.statusCode >= 300) return false;
+      final nextToken = data is Map ? data['access_token']?.toString() : null;
+      if (nextToken == null || nextToken.isEmpty) return false;
+      await saveToken(nextToken, data['refresh_token']?.toString() ?? refreshToken);
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<Map<String, dynamic>> supabaseLogin(String email, String password) async {
@@ -33,7 +54,7 @@ class ApiClient {
     if (response.statusCode < 200 || response.statusCode >= 300) throw ApiException((data is Map ? (data['error_description'] ?? data['msg']) : null)?.toString() ?? 'Sign in failed', response.statusCode);
     final token = data['access_token']?.toString();
     if (token == null) throw ApiException('No access token returned.', response.statusCode);
-    await saveToken(token);
+    await saveToken(token, data['refresh_token']?.toString());
     await post('/api/auth/supabase/sync', body: {});
     final me = await get('/api/auth/me');
     return Map<String, dynamic>.from(me);
@@ -41,16 +62,22 @@ class ApiClient {
 
   dynamic _decode(http.Response response) { try { return jsonDecode(response.body); } catch (_) { return response.body; } }
 
-  Future<void> saveToken(String value) async {
+  Future<void> saveToken(String value, [String? nextRefreshToken]) async {
     token = value;
+    if (nextRefreshToken != null && nextRefreshToken.isNotEmpty) refreshToken = nextRefreshToken;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('worker_access_token', value);
+    if (refreshToken != null && refreshToken!.isNotEmpty) {
+      await prefs.setString('worker_refresh_token', refreshToken!);
+    }
   }
 
   Future<void> clearToken() async {
     token = null;
+    refreshToken = null;
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('worker_access_token');
+    await prefs.remove('worker_refresh_token');
   }
 
   Map<String, String> get headers => {
