@@ -156,7 +156,13 @@ class _WorkforceAppState extends State<WorkforceApp> {
       return;
     }
     try {
-      final response = await api.get('/api/auth/me');
+      dynamic response;
+      try {
+        response = await api.get('/api/auth/me');
+      } catch (_) {
+        if (!await api.refreshSession()) rethrow;
+        response = await api.get('/api/auth/me');
+      }
       if (!mounted) return;
       setState(() {
         authenticated = true;
