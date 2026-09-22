@@ -100,6 +100,10 @@ class ApiClient {
     return _handle(response);
   }
 
+  Future<void> changePassword(String newPassword) async {
+    await post('/api/auth/password-change', body: {'new_password': newPassword});
+  }
+
   Future<dynamic> patch(String path, {Map<String, dynamic>? body}) async {
     final response = await http
         .patch(Uri.parse('$apiBaseUrl$path'), headers: headers, body: jsonEncode(body ?? {}))
@@ -140,6 +144,7 @@ class _WorkforceAppState extends State<WorkforceApp> {
   final ApiClient api = ApiClient();
   bool initialized = false;
   bool authenticated = false;
+  bool passwordChangeRequired = false;
   Map<String, dynamic>? worker;
   late final WorkforceRealtime realtime = WorkforceRealtime(apiBaseUrl: apiBaseUrl, supabaseUrl: supabaseUrl, supabasePublishableKey: supabasePublishableKey);
 
@@ -165,9 +170,13 @@ class _WorkforceAppState extends State<WorkforceApp> {
       }
       if (!mounted) return;
       setState(() {
-        authenticated = true;
-        worker = Map<String, dynamic>.from(response);
-        initialized = true;
+        final nextWorker = Map<String, dynamic>.from(response);
+        setState(() {
+          authenticated = nextWorker['password_change_required'] != true;
+          passwordChangeRequired = nextWorker['password_change_required'] == true;
+          worker = nextWorker;
+          initialized = true;
+        });
       });
       await NotificationService.initialize();
       await realtime.start();
@@ -184,13 +193,34 @@ class _WorkforceAppState extends State<WorkforceApp> {
 
   Future<void> login(String token, Map<String, dynamic> user) async {
     await api.saveToken(token);
+    final mustChange = user['password_change_required'] == true;
     if (!mounted) return;
     setState(() {
-      authenticated = true;
+      authenticated = !mustChange;
+      passwordChangeRequired = mustChange;
       worker = user;
     });
-    await NotificationService.initialize();
-    await realtime.start();
+    if (!mustChange) {
+      await NotificationService.initialize();
+      await realtime.start();
+    }
+  }
+
+  Future<void> passwordChanged() async {
+    try {
+      final me = await api.get('/api/auth/me');
+      if (!mounted) return;
+      setState(() {
+        authenticated = true;
+        passwordChangeRequired = false;
+        worker = Map<String, dynamic>.from(me);
+      });
+      await NotificationService.initialize();
+      await realtime.start();
+    } catch (_) {
+      await logout();
+      rethrow;
+    }
   }
 
   Future<void> logout() async {
@@ -200,6 +230,7 @@ class _WorkforceAppState extends State<WorkforceApp> {
     if (!mounted) return;
     setState(() {
       authenticated = false;
+      passwordChangeRequired = false;
       worker = null;
     });
   }
@@ -224,7 +255,9 @@ class _WorkforceAppState extends State<WorkforceApp> {
       ),
       home: authenticated
           ? WorkforceHome(api: api, worker: worker!, onLogout: logout, realtime: realtime)
-          : WorkerLoginPage(api: api, onLogin: login),
+          : passwordChangeRequired
+              ? PasswordChangePage(api: api, worker: worker!, onComplete: passwordChanged, onLogout: logout)
+              : WorkerLoginPage(api: api, onLogin: login),
     );
   }
 }
@@ -266,7 +299,7 @@ class _WorkerLoginPageState extends State<WorkerLoginPage> {
     });
     try {
       if (supabaseUrl.isEmpty || supabasePublishableKey.isEmpty) {
-        throw ApiException('Workforce authentication requires Supabase configuration.', 503);
+        throw ApiException('Workforce is not configured. The app build is missing Supabase settings.', 503);
       }
       // supabaseLogin completes the shared Supabase -> Maintain.ai sync
       // and returns the authoritative Maintain.ai /api/auth/me user.
@@ -331,7 +364,137 @@ class _WorkerLoginPageState extends State<WorkerLoginPage> {
                             : const Text('Continue'),
                       ),
                       const SizedBox(height: 14),
-                      const Text('Sign in with the account invited by your company administrator.', textAlign: TextAlign.center, style: TextStyle(color: Colors.white38, fontSize: 12)),
+                      const Text('Sign in with the account created by your company administrator.', textAlign: TextAlign.center, style: TextStyle(color: Colors.white38, fontSize: 12)),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class PasswordChangePage extends StatefulWidget {
+  final ApiClient api;
+  final Map<String, dynamic> worker;
+  final Future<void> Function() onComplete;
+  final Future<void> Function() onLogout;
+
+  const PasswordChangePage({
+    super.key,
+    required this.api,
+    required this.worker,
+    required this.onComplete,
+    required this.onLogout,
+  });
+
+  @override
+  State<PasswordChangePage> createState() => _PasswordChangePageState();
+}
+
+class _PasswordChangePageState extends State<PasswordChangePage> {
+  final passwordController = TextEditingController();
+  final confirmController = TextEditingController();
+  bool loading = false;
+  String? error;
+
+  @override
+  void dispose() {
+    passwordController.dispose();
+    confirmController.dispose();
+    super.dispose();
+  }
+
+  Future<void> submit() async {
+    final password = passwordController.text;
+    final confirm = confirmController.text;
+    if (password.length < 8) {
+      setState(() => error = 'Password must be at least 8 characters.');
+      return;
+    }
+    if (password != confirm) {
+      setState(() => error = 'Passwords do not match.');
+      return;
+    }
+    setState(() {
+      loading = true;
+      error = null;
+    });
+    try {
+      await widget.api.changePassword(password);
+      await widget.onComplete();
+    } catch (e) {
+      if (mounted) setState(() => error = e.toString());
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final name = widget.worker['full_name']?.toString();
+    return Scaffold(
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: Card(
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const CircleAvatar(
+                        radius: 34,
+                        backgroundColor: Color(0x223D8BFF),
+                        child: Icon(Icons.lock_reset, size: 36, color: Colors.lightBlueAccent),
+                      ),
+                      const SizedBox(height: 18),
+                      const Text('Set your password', textAlign: TextAlign.center, style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900)),
+                      const SizedBox(height: 8),
+                      Text(
+                        name?.isNotEmpty == true ? 'Welcome, $name.' : 'Welcome to Workforce.',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.white54),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Your administrator gave you a temporary password. Choose a new private password before continuing.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.white54),
+                      ),
+                      const SizedBox(height: 24),
+                      TextField(
+                        controller: passwordController,
+                        obscureText: true,
+                        decoration: const InputDecoration(labelText: 'New password', prefixIcon: Icon(Icons.lock_outline)),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: confirmController,
+                        obscureText: true,
+                        onSubmitted: (_) => submit(),
+                        decoration: const InputDecoration(labelText: 'Confirm password', prefixIcon: Icon(Icons.lock_outline)),
+                      ),
+                      if (error != null) ...[
+                        const SizedBox(height: 12),
+                        Text(error!, style: const TextStyle(color: Colors.redAccent)),
+                      ],
+                      const SizedBox(height: 18),
+                      FilledButton(
+                        onPressed: loading ? null : submit,
+                        child: loading
+                            ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                            : const Text('Set password & continue'),
+                      ),
+                      const SizedBox(height: 10),
+                      TextButton(onPressed: loading ? null : widget.onLogout, child: const Text('Sign out')),
                     ],
                   ),
                 ),
