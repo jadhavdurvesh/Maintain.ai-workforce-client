@@ -235,8 +235,14 @@ class _WorkerLoginPageState extends State<WorkerLoginPage> {
       if (supabaseUrl.isEmpty || supabasePublishableKey.isEmpty) {
         throw ApiException('Workforce authentication requires Supabase configuration.', 503);
       }
-      final response = await widget.api.supabaseLogin(email, password);
-      await widget.onLogin(response['access_token'].toString(), Map<String, dynamic>.from(response));
+      // supabaseLogin completes the shared Supabase -> Maintain.ai sync
+      // and returns the authoritative Maintain.ai /api/auth/me user.
+      final user = await widget.api.supabaseLogin(email, password);
+      final accessToken = widget.api.token;
+      if (accessToken == null || accessToken.isEmpty) {
+        throw ApiException('Authentication succeeded but no access token was stored.', 401);
+      }
+      await widget.onLogin(accessToken, Map<String, dynamic>.from(user));
     } catch (e) {
       if (mounted) setState(() => error = e.toString());
     } finally {
