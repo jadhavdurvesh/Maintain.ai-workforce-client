@@ -169,22 +169,24 @@ class _WorkforceAppState extends State<WorkforceApp> {
         response = await api.get('/api/auth/me');
       }
       if (!mounted) return;
+      final nextWorker = Map<String, dynamic>.from(response);
+      final mustChange = nextWorker['password_change_required'] == true;
       setState(() {
-        final nextWorker = Map<String, dynamic>.from(response);
-        setState(() {
-          authenticated = nextWorker['password_change_required'] != true;
-          passwordChangeRequired = nextWorker['password_change_required'] == true;
-          worker = nextWorker;
-          initialized = true;
-        });
+        authenticated = !mustChange;
+        passwordChangeRequired = mustChange;
+        worker = nextWorker;
+        initialized = true;
       });
-      await NotificationService.initialize();
-      await realtime.start();
+      if (!mustChange) {
+        await NotificationService.initialize();
+        await realtime.start();
+      }
     } catch (_) {
       await api.clearToken();
       if (!mounted) return;
       setState(() {
         authenticated = false;
+        passwordChangeRequired = false;
         worker = null;
         initialized = true;
       });
